@@ -60,7 +60,13 @@ const CourseContent = () => {
       
       // Load existing chapters if available
       if (data.chapters && data.chapters.length > 0) {
-        setChapters(data.chapters);
+        // Normalize chapters to ensure all required fields exist
+        const normalizedChapters = data.chapters.map(ch => ({
+          ...ch,
+          quiz: ch.quiz || { enabled: false, questions: [] },
+          assignment: ch.assignment || { enabled: false, title: '', description: '', dueInDays: 7, maxScore: 100 }
+        }));
+        setChapters(normalizedChapters);
       }
     } catch (error) {
       toast.error('Failed to load course');

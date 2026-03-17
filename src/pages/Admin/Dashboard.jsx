@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import AdminLayout from '../../components/Layout/AdminLayout';
 import { useAuthStore } from '../../store';
-import { getAllCourses, getCourseAnalytics } from '../../services/firestoreService';
+import { getAllCourses, getCourseAnalytics, getAllCertificatesCount } from '../../services/firestoreService';
 import { BookOpen, Users, TrendingUp, Award } from 'lucide-react';
 import { Link } from 'react-router-dom';
 
@@ -22,24 +22,27 @@ const AdminDashboard = () => {
 
   const loadDashboardData = async () => {
     try {
-      const coursesData = await getAllCourses();
+      const [coursesData, certificatesIssued] = await Promise.all([
+        getAllCourses(),
+        getAllCertificatesCount(),
+      ]);
       setCourses(coursesData);
 
-      // Calculate stats
-      let totalStudents = 0;
-      let activeEnrollments = 0;
-      
-      for (const course of coursesData) {
-        totalStudents += course.enrolledStudents || 0;
-        const analytics = await getCourseAnalytics(course.id);
-        activeEnrollments += analytics.activeStudents || 0;
-      }
+      const totalStudents = coursesData.reduce((sum, c) => sum + (c.enrolledStudents || 0), 0);
+
+      const analyticsResults = await Promise.all(
+        coursesData.map((c) => getCourseAnalytics(c.id))
+      );
+      const activeEnrollments = analyticsResults.reduce(
+        (sum, a) => sum + (a.activeStudents || 0),
+        0
+      );
 
       setStats({
         totalCourses: coursesData.length,
         totalStudents,
         activeEnrollments,
-        certificatesIssued: 0, // Will be calculated from certificates collection
+        certificatesIssued,
       });
     } catch (error) {
       console.error('Error loading dashboard data:', error);

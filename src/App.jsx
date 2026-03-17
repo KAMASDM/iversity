@@ -15,6 +15,7 @@ import Loading from './components/Loading';
 import Landing from './pages/Landing';
 import Login from './pages/Auth/Login';
 import Register from './pages/Auth/Register';
+import ForgotPassword from './pages/Auth/ForgotPassword';
 
 // Admin Pages
 import AdminDashboard from './pages/Admin/Dashboard';
@@ -23,13 +24,14 @@ import CreateCourse from './pages/Admin/CreateCourse';
 import EditCourse from './pages/Admin/EditCourse';
 import CourseContent from './pages/Admin/CourseContent';
 import StudentManagement from './pages/Admin/StudentManagement';
+import AddPromptEngineeringCourse from './pages/Admin/AddPromptEngineeringCourse';
+import AddAllCourses from './pages/Admin/AddAllCourses';
 
 // Student Pages
 import StudentDashboard from './pages/Student/Dashboard';
 import BrowseCourses from './pages/Student/BrowseCourses';
 import CourseDetails from './pages/Student/CourseDetails';
 import Questionnaire from './pages/Student/Questionnaire';
-import CourseRoom from './pages/Student/CourseRoom';
 import EnhancedCourseRoom from './pages/Student/EnhancedCourseRoom';
 import MyProgress from './pages/Student/MyProgress';
 import Certificates from './pages/Student/Certificates';
@@ -76,6 +78,14 @@ function App() {
               </PublicRoute>
             }
           />
+          <Route
+            path="/forgot-password"
+            element={
+              <PublicRoute>
+                <ForgotPassword />
+              </PublicRoute>
+            }
+          />
 
           {/* Admin Routes */}
           <Route
@@ -115,6 +125,22 @@ function App() {
             element={
               <ProtectedRoute allowedRoles={['admin']}>
                 <CourseContent />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/admin/add-prompt-course"
+            element={
+              <ProtectedRoute allowedRoles={['admin']}>
+                <AddPromptEngineeringCourse />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/admin/add-all-courses"
+            element={
+              <ProtectedRoute allowedRoles={['admin']}>
+                <AddAllCourses />
               </ProtectedRoute>
             }
           />
@@ -165,14 +191,6 @@ function App() {
             element={
               <ProtectedRoute allowedRoles={['student']}>
                 <EnhancedCourseRoom />
-              </ProtectedRoute>
-            }
-          />
-          <Route
-            path="/student/course-room-old/:enrollmentId"
-            element={
-              <ProtectedRoute allowedRoles={['student']}>
-                <CourseRoom />
               </ProtectedRoute>
             }
           />

@@ -29,7 +29,8 @@ export const createCourse = async (courseData, adminId) => {
       createdAt: serverTimestamp(),
       updatedAt: serverTimestamp(),
       enrolledStudents: 0,
-      published: false,
+      // Only set published to false if not already specified in courseData
+      published: courseData.published !== undefined ? courseData.published : false,
     };
 
     await setDoc(courseRef, course);
@@ -220,8 +221,8 @@ export const saveQuizResult = async (enrollmentId, quizData) => {
     await updateDoc(doc(db, 'enrollments', enrollmentId), {
       quizResults: arrayUnion({
         quizId: quizRef.id,
-        moduleId: quizData.moduleId,
-        score: quizData.score,
+        moduleId: quizData.moduleId || quizData.chapterId || 'unknown',
+        score: quizData.score || 0,
         submittedAt: new Date().toISOString(),
       }),
     });
@@ -369,6 +370,31 @@ export const getCertificate = async (certificateId) => {
     return null;
   } catch (error) {
     console.error('Error getting certificate:', error);
+    throw error;
+  }
+};
+
+export const getStudentCertificates = async (studentId) => {
+  try {
+    const q = query(
+      collection(db, 'certificates'),
+      where('studentId', '==', studentId),
+      orderBy('issueDate', 'desc')
+    );
+    const snapshot = await getDocs(q);
+    return snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+  } catch (error) {
+    console.error('Error getting student certificates:', error);
+    throw error;
+  }
+};
+
+export const getAllCertificatesCount = async () => {
+  try {
+    const snapshot = await getDocs(collection(db, 'certificates'));
+    return snapshot.size;
+  } catch (error) {
+    console.error('Error getting certificates count:', error);
     throw error;
   }
 };

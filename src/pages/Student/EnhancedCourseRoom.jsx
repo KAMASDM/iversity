@@ -20,8 +20,233 @@ import { toast } from 'react-toastify';
 import { 
   BookOpen, CheckCircle, Lock, Play, ChevronLeft, ChevronRight,
   Clock, Brain, FileText, Target, TrendingUp, Award, MessageCircle,
-  Download, ExternalLink, Video, File
+  Download, ExternalLink, Video, File, Lightbulb, ArrowRight
 } from 'lucide-react';
+
+// Presentation Renderer Component
+const PresentationRenderer = ({ content }) => {
+  const [currentSlide, setCurrentSlide] = useState(0);
+  
+  // Keyboard navigation
+  useEffect(() => {
+    const handleKeyPress = (e) => {
+      if (e.key === 'ArrowRight') {
+        nextSlide();
+      } else if (e.key === 'ArrowLeft') {
+        prevSlide();
+      }
+    };
+    
+    window.addEventListener('keydown', handleKeyPress);
+    return () => window.removeEventListener('keydown', handleKeyPress);
+  }, [currentSlide]);
+  
+  // Parse markdown-style content into slides
+  const parseContentToSlides = (text) => {
+    const slides = [];
+    const lines = text.split('\n');
+    let currentSlideContent = { title: '', content: [] };
+    
+    // Helper function to clean markdown formatting
+    const cleanMarkdown = (str) => {
+      return str
+        .replace(/\*\*(.*?)\*\*/g, '$1')  // Remove bold **text**
+        .replace(/\*(.*?)\*/g, '$1')      // Remove italic *text*
+        .replace(/`(.*?)`/g, '$1')        // Remove code `text`
+        .trim();
+    };
+    
+    for (let i = 0; i < lines.length; i++) {
+      const line = lines[i].trim();
+      
+      // Main heading (# ) creates new slide
+      if (line.startsWith('# ') && !line.startsWith('## ')) {
+        if (currentSlideContent.title || currentSlideContent.content.length > 0) {
+          slides.push({ ...currentSlideContent });
+        }
+        currentSlideContent = { 
+          title: cleanMarkdown(line.replace(/^#\s+/, '')), 
+          content: [],
+          type: 'title'
+        };
+      }
+      // Subheading (## ) creates content section
+      else if (line.startsWith('## ')) {
+        if (currentSlideContent.title && currentSlideContent.content.length > 0) {
+          slides.push({ ...currentSlideContent });
+          currentSlideContent = { title: '', content: [], type: 'content' };
+        }
+        currentSlideContent.title = cleanMarkdown(line.replace(/^##\s+/, ''));
+        currentSlideContent.type = 'content';
+      }
+      // List items
+      else if (line.startsWith('- ') || line.startsWith('* ')) {
+        currentSlideContent.content.push({
+          type: 'bullet',
+          text: cleanMarkdown(line.replace(/^[-*]\s+/, ''))
+        });
+      }
+      // Numbered lists
+      else if (/^\d+\.\s/.test(line)) {
+        currentSlideContent.content.push({
+          type: 'numbered',
+          text: cleanMarkdown(line.replace(/^\d+\.\s+/, ''))
+        });
+      }
+      // Regular paragraphs
+      else if (line.length > 0) {
+        currentSlideContent.content.push({
+          type: 'paragraph',
+          text: cleanMarkdown(line)
+        });
+      }
+    }
+    
+    // Add the last slide
+    if (currentSlideContent.title || currentSlideContent.content.length > 0) {
+      slides.push(currentSlideContent);
+    }
+    
+    return slides.length > 0 ? slides : [{ title: 'Content', content: [{ type: 'paragraph', text: content }], type: 'content' }];
+  };
+
+  const slides = parseContentToSlides(content);
+  const totalSlides = slides.length;
+  const slide = slides[currentSlide];
+
+  const nextSlide = () => {
+    if (currentSlide < totalSlides - 1) {
+      setCurrentSlide(currentSlide + 1);
+    }
+  };
+
+  const prevSlide = () => {
+    if (currentSlide > 0) {
+      setCurrentSlide(currentSlide - 1);
+    }
+  };
+
+  const goToSlide = (index) => {
+    setCurrentSlide(index);
+  };
+
+  return (
+    <div className="space-y-4">
+      {/* Main Slide Display */}
+      <div className="relative bg-gradient-to-br from-slate-900 via-purple-900/20 to-slate-900 rounded-2xl border-2 border-purple-500/30 overflow-hidden min-h-[500px] shadow-2xl">
+        {/* Decorative Elements */}
+        <div className="absolute top-0 left-0 w-full h-1 bg-gradient-to-r from-blue-500 via-purple-500 to-pink-500"></div>
+        <div className="absolute top-0 right-0 w-64 h-64 bg-purple-500/10 rounded-full blur-3xl"></div>
+        <div className="absolute bottom-0 left-0 w-64 h-64 bg-blue-500/10 rounded-full blur-3xl"></div>
+        
+        {/* Slide Content */}
+        <div className="relative z-10 p-12 min-h-[500px] flex flex-col justify-center">
+          {slide.type === 'title' ? (
+            // Title Slide
+            <div className="text-center">
+              <div className="mb-6">
+                <Lightbulb className="mx-auto text-yellow-400 animate-pulse" size={64} />
+              </div>
+              <h1 className="text-5xl md:text-6xl font-extrabold text-white mb-6 leading-tight">
+                {slide.title}
+              </h1>
+              {slide.content.length > 0 && (
+                <div className="space-y-4 max-w-3xl mx-auto">
+                  {slide.content.map((item, idx) => (
+                    <p key={idx} className="text-xl text-gray-300 leading-relaxed">
+                      {item.text}
+                    </p>
+                  ))}
+                </div>
+              )}
+            </div>
+          ) : (
+            // Content Slide
+            <div>
+              <h2 className="text-4xl font-bold text-white mb-8 border-b-4 border-purple-500 pb-4 inline-block">
+                {slide.title}
+              </h2>
+              <div className="space-y-4 mt-8">
+                {slide.content.map((item, idx) => (
+                  <div 
+                    key={idx} 
+                    className="flex items-start gap-4 p-4 bg-white/5 backdrop-blur-sm rounded-xl border border-white/10 hover:bg-white/10 transition-all animate-fade-in"
+                    style={{ animationDelay: `${idx * 0.1}s` }}
+                  >
+                    {item.type === 'bullet' && (
+                      <>
+                        <div className="flex-shrink-0 w-3 h-3 bg-gradient-to-r from-blue-500 to-purple-500 rounded-full mt-2"></div>
+                        <p className="text-xl text-gray-200 leading-relaxed flex-1">{item.text}</p>
+                      </>
+                    )}
+                    {item.type === 'numbered' && (
+                      <>
+                        <div className="flex-shrink-0 w-8 h-8 bg-gradient-to-r from-purple-500 to-pink-500 rounded-full flex items-center justify-center font-bold text-white text-sm">
+                          {idx + 1}
+                        </div>
+                        <p className="text-xl text-gray-200 leading-relaxed flex-1">{item.text}</p>
+                      </>
+                    )}
+                    {item.type === 'paragraph' && (
+                      <p className="text-xl text-gray-200 leading-relaxed">{item.text}</p>
+                    )}
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+        </div>
+
+        {/* Slide Number */}
+        <div className="absolute bottom-6 right-6 px-4 py-2 bg-white/10 backdrop-blur-md rounded-full border border-white/20">
+          <span className="text-white font-semibold">{currentSlide + 1} / {totalSlides}</span>
+        </div>
+      </div>
+
+      {/* Navigation Controls */}
+      <div className="flex items-center justify-between">
+        <button
+          onClick={prevSlide}
+          disabled={currentSlide === 0}
+          className="flex items-center gap-2 px-6 py-3 bg-white/10 hover:bg-white/20 text-white rounded-xl transition-all disabled:opacity-30 disabled:cursor-not-allowed"
+        >
+          <ChevronLeft size={20} />
+          Previous
+        </button>
+
+        {/* Slide Dots */}
+        <div className="flex gap-2">
+          {slides.map((_, idx) => (
+            <button
+              key={idx}
+              onClick={() => goToSlide(idx)}
+              className={`w-3 h-3 rounded-full transition-all ${
+                idx === currentSlide 
+                  ? 'bg-gradient-to-r from-blue-500 to-purple-500 w-8' 
+                  : 'bg-white/20 hover:bg-white/40'
+              }`}
+              aria-label={`Go to slide ${idx + 1}`}
+            />
+          ))}
+        </div>
+
+        <button
+          onClick={nextSlide}
+          disabled={currentSlide === totalSlides - 1}
+          className="flex items-center gap-2 px-6 py-3 bg-gradient-to-r from-blue-600 to-purple-600 hover:from-blue-500 hover:to-purple-500 text-white rounded-xl transition-all disabled:opacity-30 disabled:cursor-not-allowed shadow-lg"
+        >
+          Next
+          <ChevronRight size={20} />
+        </button>
+      </div>
+
+      {/* Keyboard Navigation Hint */}
+      <div className="text-center text-sm text-gray-400">
+        <p>💡 Tip: Use arrow keys to navigate slides</p>
+      </div>
+    </div>
+  );
+};
 
 const EnhancedCourseRoom = () => {
   const { enrollmentId } = useParams();
@@ -183,7 +408,8 @@ const EnhancedCourseRoom = () => {
 
     try {
       await saveQuizResult(enrollmentId, {
-        chapterId: currentChapter.id,
+        moduleId: currentChapter?.id || 'unknown',
+        chapterId: currentChapter?.id || 'unknown',
         score,
         answers: quizAnswers,
         totalQuestions: quiz.questions.length,
@@ -392,14 +618,10 @@ const EnhancedCourseRoom = () => {
                   </div>
                 )}
 
-                {/* Article/Text Content */}
+                {/* Article/Text Content - Presentation Style */}
                 {(currentLesson?.type === 'article' || currentLesson?.type === 'interactive') && currentLesson.content && (
                   <div className="mb-6">
-                    <div className="prose prose-invert max-w-none">
-                      <div className="text-gray-300 whitespace-pre-wrap leading-relaxed">
-                        {currentLesson.content}
-                      </div>
-                    </div>
+                    <PresentationRenderer content={currentLesson.content} />
                   </div>
                 )}
 

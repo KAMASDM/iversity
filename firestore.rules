@@ -99,5 +99,23 @@ service cloud.firestore {
                      (resource.data.userId == request.auth.uid || isAdmin());
       allow write: if isSignedIn() && request.resource.data.userId == request.auth.uid;
     }
+    
+    // Curriculums collection
+    match /curriculums/{curriculumId} {
+      allow read: if isSignedIn();
+      allow write: if isSignedIn();
+    }
+    
+    // Chats collection (for Virtual Buddy messages)
+    match /chats/{chatId} {
+      allow read: if isSignedIn();
+      allow create: if isSignedIn();
+    }
+    
+    // Quiz results collection
+    match /quizResults/{resultId} {
+      allow read: if isSignedIn();
+      allow write: if isSignedIn();
+    }
   }
 }
