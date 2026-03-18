@@ -1,3 +1,4 @@
+import 'dotenv/config';
 import { initializeApp } from 'firebase/app';
 import { getFirestore, collection, addDoc, getDocs, query, where, serverTimestamp } from 'firebase/firestore';
 import { aiFoundationCourse } from './aiFoundationCourse.js';
@@ -7,13 +8,13 @@ import { ragVectorDbCourse } from './ragVectorDbCourse.js';
 import { langchainAgentsCourse } from './langchainAgentsCourse.js';
 
 const firebaseConfig = {
-  apiKey: "AIzaSyB_k938j9YuO0vI12u2zYMCBBcXaWlxgIU",
-  authDomain: "iversity-99ee3.firebaseapp.com",
-  projectId: "iversity-99ee3",
-  storageBucket: "iversity-99ee3.firebasestorage.app",
-  messagingSenderId: "142392345895",
-  appId: "1:142392345895:web:982ebccd4d6c8381e29502",
-  measurementId: "G-ES5ZWDCGCV"
+  apiKey: process.env.VITE_FIREBASE_API_KEY,
+  authDomain: process.env.VITE_FIREBASE_AUTH_DOMAIN,
+  projectId: process.env.VITE_FIREBASE_PROJECT_ID,
+  storageBucket: process.env.VITE_FIREBASE_STORAGE_BUCKET,
+  messagingSenderId: process.env.VITE_FIREBASE_MESSAGING_SENDER_ID,
+  appId: process.env.VITE_FIREBASE_APP_ID,
+  measurementId: process.env.VITE_FIREBASE_MEASUREMENT_ID,
 };
 
 const app = initializeApp(firebaseConfig);
