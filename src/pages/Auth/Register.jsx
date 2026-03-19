@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { FcGoogle } from 'react-icons/fc';
-import { Mail, Lock, User, Loader, ArrowRight, Sparkles } from 'lucide-react';
+import { Mail, Lock, User, Loader, ArrowRight, Sparkles, CheckCircle } from 'lucide-react';
 import { registerWithEmail, signInWithGoogle, getUserData } from '../../services/authService';
 import { useAuthStore } from '../../store';
 import { toast } from 'react-toastify';
@@ -10,12 +10,13 @@ const Register = () => {
   const navigate = useNavigate();
   const { setUser, setUserData } = useAuthStore();
   const [loading, setLoading] = useState(false);
+  const [registered, setRegistered] = useState(false);
+  const [registeredEmail, setRegisteredEmail] = useState('');
   const [formData, setFormData] = useState({
     fullName: '',
     email: '',
     password: '',
     confirmPassword: '',
-    role: 'student',
   });
 
   const handleChange = (e) => {
@@ -37,21 +38,15 @@ const Register = () => {
 
     setLoading(true);
     try {
-      const user = await registerWithEmail(formData.email, formData.password, {
+      await registerWithEmail(formData.email, formData.password, {
         fullName: formData.fullName,
-        role: formData.role,
+        role: 'student',
       });
 
-      const userData = await getUserData(user.uid);
-      setUser(user);
-      setUserData(userData);
-      toast.success('Account created successfully!');
-      
-      if (formData.role === 'admin') {
-        navigate('/admin/dashboard');
-      } else {
-        navigate('/student/dashboard');
-      }
+      // User is signed out after registration — they must verify email first
+      setRegisteredEmail(formData.email);
+      setRegistered(true);
+      toast.success('Account created! Please verify your email before signing in.');
     } catch (error) {
       toast.error(error.message || 'Failed to create account');
     } finally {
@@ -138,6 +133,27 @@ const Register = () => {
         {/* Right - form */}
         <div className="mx-auto w-full max-w-md">
           <div className="bg-white/5 backdrop-blur-lg border border-white/10 rounded-3xl p-8 shadow-2xl">
+
+            {registered ? (
+              /* Email verification success screen */
+              <div className="text-center text-white space-y-6 py-4">
+                <CheckCircle className="mx-auto text-green-400" size={56} />
+                <h2 className="text-2xl font-bold">Verify your email</h2>
+                <p className="text-gray-300 text-sm leading-relaxed">
+                  We sent a verification link to{' '}
+                  <span className="font-semibold text-white">{registeredEmail}</span>.
+                  Click the link in the email to activate your account.
+                </p>
+                <p className="text-xs text-gray-500">Don't see it? Check your spam or junk folder.</p>
+                <Link
+                  to="/login"
+                  className="inline-flex items-center gap-2 px-6 py-3 bg-gradient-to-r from-purple-600 to-blue-600 rounded-lg font-semibold shadow-lg hover:scale-[1.02] transition-transform"
+                >
+                  Go to Sign in <ArrowRight size={16} />
+                </Link>
+              </div>
+            ) : (
+            <>
             <div className="mb-6 text-center">
               <h2 className="text-2xl font-bold text-white">Create Account</h2>
               <p className="text-sm text-gray-300">Start your learning journey with iVersity</p>
@@ -176,20 +192,6 @@ const Register = () => {
                     className="w-full pl-10 pr-4 py-3 rounded-lg bg-white/5 border border-white/10 text-white placeholder-gray-400 focus:ring-2 focus:ring-purple-500 outline-none"
                   />
                 </div>
-              </div>
-
-              <div>
-                <label htmlFor="role" className="text-sm text-gray-300 mb-1 block">I am a</label>
-                <select
-                  id="role"
-                  name="role"
-                  value={formData.role}
-                  onChange={handleChange}
-                  className="w-full px-4 py-3 rounded-lg bg-white/5 border border-white/10 text-white focus:ring-2 focus:ring-purple-500 outline-none"
-                >
-                  <option value="student" className="bg-gray-900">Student</option>
-                  <option value="admin" className="bg-gray-900">Admin</option>
-                </select>
               </div>
 
               <div>
@@ -260,6 +262,8 @@ const Register = () => {
                 </Link>
               </p>
             </div>
+            </>
+            )}
           </div>
         </div>
       </div>

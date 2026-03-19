@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { FcGoogle } from 'react-icons/fc';
 import { Mail, Lock, Loader, ArrowRight } from 'lucide-react';
-import { signInWithEmail, signInWithGoogle, getUserData } from '../../services/authService';
+import { signInWithEmail, signInWithGoogle, getUserData, logOut, resendVerificationEmail } from '../../services/authService';
 import { useAuthStore } from '../../store';
 import { toast } from 'react-toastify';
 
@@ -10,6 +10,7 @@ const Login = () => {
   const navigate = useNavigate();
   const { setUser, setUserData } = useAuthStore();
   const [loading, setLoading] = useState(false);
+  const [unverifiedEmail, setUnverifiedEmail] = useState('');
   const [formData, setFormData] = useState({ email: '', password: '' });
 
   const handleChange = (e) => setFormData({ ...formData, [e.target.name]: e.target.value });
@@ -20,6 +21,15 @@ const Login = () => {
     setLoading(true);
     try {
       const user = await signInWithEmail(formData.email, formData.password);
+
+      // Block access for email/password users who haven't verified their email
+      if (!user.emailVerified) {
+        await resendVerificationEmail(user);
+        await logOut();
+        setUnverifiedEmail(formData.email);
+        return;
+      }
+
       const userData = await getUserData(user.uid);
       setUser(user);
       setUserData(userData);
@@ -97,6 +107,16 @@ const Login = () => {
             </div>
 
             <form onSubmit={handleSubmit} className="space-y-4">
+              {unverifiedEmail && (
+                <div className="p-4 rounded-lg bg-amber-500/10 border border-amber-500/30 text-sm">
+                  <p className="font-semibold text-amber-300 mb-1">Email not verified</p>
+                  <p className="text-amber-200/80">
+                    A verification link was sent to{' '}
+                    <span className="font-medium text-white">{unverifiedEmail}</span>.
+                    Please check your inbox (and spam folder), then sign in again.
+                  </p>
+                </div>
+              )}
               <div>
                 <label htmlFor="email" className="text-sm text-gray-300 mb-1 block">Email</label>
                 <div className="relative">

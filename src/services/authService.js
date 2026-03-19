@@ -5,6 +5,7 @@ import {
   GoogleAuthProvider,
   signOut,
   sendPasswordResetEmail,
+  sendEmailVerification,
   updateProfile,
 } from 'firebase/auth';
 import { doc, setDoc, getDoc, serverTimestamp } from 'firebase/firestore';
@@ -34,6 +35,12 @@ export const registerWithEmail = async (email, password, userData) => {
       profileComplete: false,
       ...userData,
     });
+
+    // Send email verification — user must verify before accessing the app
+    await sendEmailVerification(user);
+
+    // Sign out immediately so they can't bypass verification
+    await signOut(auth);
 
     return user;
   } catch (error) {
@@ -103,6 +110,16 @@ export const resetPassword = async (email) => {
   }
 };
 
+// Resend email verification to the currently signed-in (but unverified) user
+export const resendVerificationEmail = async (user) => {
+  try {
+    await sendEmailVerification(user);
+  } catch (error) {
+    console.error('Error sending verification email:', error);
+    throw error;
+  }
+};
+
 // Get current user data from Firestore
 export const getUserData = async (uid) => {
   try {
@@ -123,5 +140,6 @@ export default {
   signInWithGoogle,
   logOut,
   resetPassword,
+  resendVerificationEmail,
   getUserData,
 };

@@ -43,9 +43,16 @@ function App() {
     setLoading(true);
     const unsubscribe = onAuthStateChanged(auth, async (user) => {
       if (user) {
-        setUser(user);
-        const userData = await getUserData(user.uid);
-        setUserData(userData);
+        // Only hydrate the store for verified users.
+        // Google sign-in users always have emailVerified=true, so they pass through.
+        if (user.emailVerified) {
+          setUser(user);
+          const userData = await getUserData(user.uid);
+          setUserData(userData);
+        } else {
+          setUser(null);
+          setUserData(null);
+        }
       } else {
         setUser(null);
         setUserData(null);
