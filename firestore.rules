@@ -31,7 +31,10 @@ service cloud.firestore {
     match /courses/{courseId} {
       allow read: if true; // Public read for browsing
       allow create: if isAdmin();
-      allow update: if isAdmin();
+      // Admins can update anything; students can only increment enrolledStudents
+      allow update: if isAdmin() || 
+                       (isSignedIn() && 
+                        request.resource.data.diff(resource.data).affectedKeys().hasOnly(['enrolledStudents']));
       allow delete: if isAdmin();
     }
     

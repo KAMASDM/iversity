@@ -1,6 +1,7 @@
 import 'dotenv/config';
 import { initializeApp } from 'firebase/app';
-import { getFirestore, collection, addDoc, getDocs, query, where, serverTimestamp } from 'firebase/firestore';
+import { getFirestore, collection, addDoc, serverTimestamp } from 'firebase/firestore';
+import { getAuth, signInWithEmailAndPassword } from 'firebase/auth';
 import { aiFoundationCourse } from './aiFoundationCourse.js';
 import { promptEngineeringCourse } from './promptEngineeringCourse.js';
 import { aiApiAppsCourse } from './aiApiAppsCourse.js';
@@ -19,6 +20,7 @@ const firebaseConfig = {
 
 const app = initializeApp(firebaseConfig);
 const db = getFirestore(app);
+const auth = getAuth(app);
 
 const courses = [
   aiFoundationCourse,
@@ -28,45 +30,43 @@ const courses = [
   langchainAgentsCourse,
 ];
 
-async function courseExists(title) {
-  const q = query(collection(db, 'courses'), where('title', '==', title));
-  const snap = await getDocs(q);
-  return !snap.empty;
-}
-
 async function addAllCourses() {
-  console.log('🚀 Adding all courses to Firestore...\n');
-
-  for (const course of courses) {
-    const exists = await courseExists(course.title);
-    if (exists) {
-      console.log(`⏭️  Skipping (already exists): ${course.title}`);
-      continue;
+  try {
+    const email = process.env.SEED_EMAIL;
+    const password = process.env.SEED_PASSWORD;
+    if (!email || !password) {
+      throw new Error('Set SEED_EMAIL and SEED_PASSWORD in your .env file');
     }
 
-    const courseData = {
-      ...course,
-      createdBy: 'system',
-      createdAt: serverTimestamp(),
-      updatedAt: serverTimestamp(),
-      enrolledStudents: 0,
-    };
+    console.log(`Signing in as ${email}...`);
+    await signInWithEmailAndPassword(auth, email, password);
+    console.log('✅ Signed in\n');
 
-    const docRef = await addDoc(collection(db, 'courses'), courseData);
-    const totalLessons = course.chapters.reduce((sum, ch) => sum + ch.lessons.length, 0);
-    const totalQuizzes = course.chapters.filter(ch => ch.quiz?.enabled).length;
+    console.log('Adding all courses to Firestore...\n');
 
-    console.log(`✅ Added: ${course.title}`);
-    console.log(`   ID: ${docRef.id}`);
-    console.log(`   Level: ${course.level} | Duration: ${course.duration} weeks`);
-    console.log(`   Chapters: ${course.chapters.length} | Lessons: ${totalLessons} | Quizzes: ${totalQuizzes}\n`);
+    for (const course of courses) {
+      const courseData = {
+        ...course,
+        createdBy: 'system',
+        createdAt: serverTimestamp(),
+        updatedAt: serverTimestamp(),
+        enrolledStudents: 0,
+      };
+
+      const docRef = await addDoc(collection(db, 'courses'), courseData);
+
+      console.log(`✅ Added: ${course.title}`);
+      console.log(`   Course ID: ${docRef.id}`);
+      console.log(`   Level: ${course.level} | Duration: ${course.duration} weeks`);
+      console.log(`   Chapters: ${course.chapters.length} | Lessons: ${course.chapters.reduce((sum, ch) => sum + ch.lessons.length, 0)}\n`);
+    }
+
+    console.log('🎉 All courses added successfully!');
+    process.exit(0);
+  } catch (error) {
+    console.error('❌ Error adding courses:', error);
+    process.exit(1);
   }
-
-  console.log('🎉 Done! All courses processed.');
-  process.exit(0);
 }
 
-addAllCourses().catch(err => {
-  console.error('❌ Error:', err);
-  process.exit(1);
-});
+addAllCourses();

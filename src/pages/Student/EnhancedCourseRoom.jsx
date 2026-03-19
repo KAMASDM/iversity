@@ -23,6 +23,32 @@ import {
   Download, ExternalLink, Video, File, Lightbulb, ArrowRight
 } from 'lucide-react';
 
+// Inline markdown renderer — converts **bold**, *italic*, `code` to JSX
+const renderInline = (text) => {
+  const parts = [];
+  // Split on bold, italic, inline-code markers
+  const regex = /(\*\*.*?\*\*|\*.*?\*|`.*?`)/g;
+  let lastIndex = 0;
+  let match;
+  let key = 0;
+  while ((match = regex.exec(text)) !== null) {
+    if (match.index > lastIndex) {
+      parts.push(text.slice(lastIndex, match.index));
+    }
+    const token = match[0];
+    if (token.startsWith('**')) {
+      parts.push(<strong key={key++} className="text-white font-semibold">{token.slice(2, -2)}</strong>);
+    } else if (token.startsWith('`')) {
+      parts.push(<code key={key++} className="px-1.5 py-0.5 bg-white/10 text-purple-300 rounded text-sm font-mono">{token.slice(1, -1)}</code>);
+    } else {
+      parts.push(<em key={key++} className="italic text-gray-300">{token.slice(1, -1)}</em>);
+    }
+    lastIndex = match.index + token.length;
+  }
+  if (lastIndex < text.length) parts.push(text.slice(lastIndex));
+  return parts.length === 1 && typeof parts[0] === 'string' ? parts[0] : parts;
+};
+
 // Presentation Renderer Component
 const PresentationRenderer = ({ content }) => {
   const [currentSlide, setCurrentSlide] = useState(0);
@@ -46,26 +72,70 @@ const PresentationRenderer = ({ content }) => {
     const slides = [];
     const lines = text.split('\n');
     let currentSlideContent = { title: '', content: [] };
-    
-    // Helper function to clean markdown formatting
-    const cleanMarkdown = (str) => {
-      return str
-        .replace(/\*\*(.*?)\*\*/g, '$1')  // Remove bold **text**
-        .replace(/\*(.*?)\*/g, '$1')      // Remove italic *text*
-        .replace(/`(.*?)`/g, '$1')        // Remove code `text`
-        .trim();
+
+    // Strip raw markdown formatting for headings only
+    const cleanHeading = (str) => str
+      .replace(/\*\*(.*?)\*\*/g, '$1')
+      .replace(/\*(.*?)\*/g, '$1')
+      .replace(/`(.*?)`/g, '$1')
+      .trim();
+
+    let inCodeBlock = false;
+    let codeLines = [];
+    let codeLang = '';
+    let tableRows = [];
+
+    const flushTable = () => {
+      if (tableRows.length === 0) return;
+      // Filter out pure separator rows (e.g. |---|---|)
+      const filtered = tableRows.filter(row => !row.every(cell => /^[-:\s]+$/.test(cell)));
+      if (filtered.length > 0) {
+        currentSlideContent.content.push({ type: 'table', rows: filtered });
+      }
+      tableRows = [];
     };
-    
+
     for (let i = 0; i < lines.length; i++) {
-      const line = lines[i].trim();
-      
+      const rawLine = lines[i];
+      const line = rawLine.trim();
+
+      // ── Code block handling ──────────────────────────────────────────
+      if (line.startsWith('```')) {
+        if (!inCodeBlock) {
+          flushTable();
+          inCodeBlock = true;
+          codeLang = line.slice(3).trim();
+          codeLines = [];
+        } else {
+          inCodeBlock = false;
+          currentSlideContent.content.push({ type: 'code', language: codeLang, lines: codeLines });
+          codeLines = [];
+          codeLang = '';
+        }
+        continue;
+      }
+      if (inCodeBlock) {
+        codeLines.push(rawLine); // preserve original indentation
+        continue;
+      }
+
+      // ── Table row handling ───────────────────────────────────────────
+      if (line.startsWith('|')) {
+        const cells = line.split('|').map(c => c.trim()).filter((_, idx, arr) => idx !== 0 && idx !== arr.length - 1);
+        tableRows.push(cells);
+        continue;
+      } else {
+        flushTable();
+      }
+
+      // ── Headings ────────────────────────────────────────────────────
       // Main heading (# ) creates new slide
       if (line.startsWith('# ') && !line.startsWith('## ')) {
         if (currentSlideContent.title || currentSlideContent.content.length > 0) {
           slides.push({ ...currentSlideContent });
         }
         currentSlideContent = { 
-          title: cleanMarkdown(line.replace(/^#\s+/, '')), 
+          title: cleanHeading(line.replace(/^#\s+/, '')), 
           content: [],
           type: 'title'
         };
@@ -76,32 +146,44 @@ const PresentationRenderer = ({ content }) => {
           slides.push({ ...currentSlideContent });
           currentSlideContent = { title: '', content: [], type: 'content' };
         }
-        currentSlideContent.title = cleanMarkdown(line.replace(/^##\s+/, ''));
+        currentSlideContent.title = cleanHeading(line.replace(/^##\s+/, ''));
         currentSlideContent.type = 'content';
+      }
+      // Sub-subheading (### ) — render as a labelled section divider
+      else if (line.startsWith('### ')) {
+        currentSlideContent.content.push({
+          type: 'subheading',
+          text: cleanHeading(line.replace(/^###\s+/, ''))
+        });
       }
       // List items
       else if (line.startsWith('- ') || line.startsWith('* ')) {
         currentSlideContent.content.push({
           type: 'bullet',
-          text: cleanMarkdown(line.replace(/^[-*]\s+/, ''))
+          text: line.replace(/^[-*]\s+/, '')
         });
       }
       // Numbered lists
       else if (/^\d+\.\s/.test(line)) {
         currentSlideContent.content.push({
           type: 'numbered',
-          text: cleanMarkdown(line.replace(/^\d+\.\s+/, ''))
+          text: line.replace(/^\d+\.\s+/, '')
         });
       }
       // Regular paragraphs
       else if (line.length > 0) {
         currentSlideContent.content.push({
           type: 'paragraph',
-          text: cleanMarkdown(line)
+          text: line
         });
       }
     }
-    
+
+    // Flush any trailing table or code block
+    flushTable();
+    if (inCodeBlock && codeLines.length > 0) {
+      currentSlideContent.content.push({ type: 'code', language: codeLang, lines: codeLines });
+    }
     // Add the last slide
     if (currentSlideContent.title || currentSlideContent.content.length > 0) {
       slides.push(currentSlideContent);
@@ -154,7 +236,7 @@ const PresentationRenderer = ({ content }) => {
                 <div className="space-y-4 max-w-3xl mx-auto">
                   {slide.content.map((item, idx) => (
                     <p key={idx} className="text-xl text-gray-300 leading-relaxed">
-                      {item.text}
+                      {renderInline(item.text)}
                     </p>
                   ))}
                 </div>
@@ -170,25 +252,78 @@ const PresentationRenderer = ({ content }) => {
                 {slide.content.map((item, idx) => (
                   <div 
                     key={idx} 
-                    className="flex items-start gap-4 p-4 bg-white/5 backdrop-blur-sm rounded-xl border border-white/10 hover:bg-white/10 transition-all animate-fade-in"
-                    style={{ animationDelay: `${idx * 0.1}s` }}
+                    className={`animate-fade-in ${
+                      item.type === 'code' || item.type === 'table'
+                        ? ''
+                        : item.type === 'subheading'
+                        ? 'pt-2'
+                        : 'flex items-start gap-4 p-4 bg-white/5 backdrop-blur-sm rounded-xl border border-white/10 hover:bg-white/10 transition-all'
+                    }`}
+                    style={{ animationDelay: `${idx * 0.05}s` }}
                   >
+                    {/* Bullet */}
                     {item.type === 'bullet' && (
                       <>
                         <div className="flex-shrink-0 w-3 h-3 bg-gradient-to-r from-blue-500 to-purple-500 rounded-full mt-2"></div>
-                        <p className="text-xl text-gray-200 leading-relaxed flex-1">{item.text}</p>
+                        <p className="text-xl text-gray-200 leading-relaxed flex-1">{renderInline(item.text)}</p>
                       </>
                     )}
+                    {/* Numbered */}
                     {item.type === 'numbered' && (
                       <>
                         <div className="flex-shrink-0 w-8 h-8 bg-gradient-to-r from-purple-500 to-pink-500 rounded-full flex items-center justify-center font-bold text-white text-sm">
                           {idx + 1}
                         </div>
-                        <p className="text-xl text-gray-200 leading-relaxed flex-1">{item.text}</p>
+                        <p className="text-xl text-gray-200 leading-relaxed flex-1">{renderInline(item.text)}</p>
                       </>
                     )}
+                    {/* Paragraph */}
                     {item.type === 'paragraph' && (
-                      <p className="text-xl text-gray-200 leading-relaxed">{item.text}</p>
+                      <p className="text-xl text-gray-200 leading-relaxed">{renderInline(item.text)}</p>
+                    )}
+                    {/* Sub-subheading (###) */}
+                    {item.type === 'subheading' && (
+                      <h3 className="text-2xl font-semibold text-purple-300 border-l-4 border-purple-500 pl-4 py-1">
+                        {item.text}
+                      </h3>
+                    )}
+                    {/* Code block */}
+                    {item.type === 'code' && (
+                      <div className="w-full rounded-xl overflow-hidden border border-white/10">
+                        <div className="flex items-center gap-2 px-4 py-2 bg-gray-800/90 border-b border-white/10">
+                          <div className="flex gap-1.5">
+                            <div className="w-3 h-3 rounded-full bg-red-500/80"></div>
+                            <div className="w-3 h-3 rounded-full bg-yellow-500/80"></div>
+                            <div className="w-3 h-3 rounded-full bg-green-500/80"></div>
+                          </div>
+                          {item.language && (
+                            <span className="text-xs text-gray-400 font-mono ml-2 uppercase tracking-wide">{item.language}</span>
+                          )}
+                        </div>
+                        <pre className="bg-gray-950/90 p-4 overflow-x-auto max-h-72">
+                          <code className="text-green-300 text-sm font-mono leading-relaxed whitespace-pre">
+                            {item.lines.join('\n')}
+                          </code>
+                        </pre>
+                      </div>
+                    )}
+                    {/* Markdown table */}
+                    {item.type === 'table' && (
+                      <div className="w-full overflow-x-auto rounded-xl border border-white/10">
+                        <table className="w-full">
+                          <tbody>
+                            {item.rows.map((row, rowIdx) => (
+                              <tr key={rowIdx} className={rowIdx === 0 ? 'bg-purple-500/25' : rowIdx % 2 === 0 ? 'bg-white/5' : ''}>
+                                {row.map((cell, cellIdx) => (
+                                  rowIdx === 0
+                                    ? <th key={cellIdx} className="px-4 py-3 text-left text-sm font-semibold text-purple-200 border-b border-white/10 first:rounded-tl-xl last:rounded-tr-xl">{renderInline(cell)}</th>
+                                    : <td key={cellIdx} className="px-4 py-3 text-sm text-gray-200 border-b border-white/5">{renderInline(cell)}</td>
+                                ))}
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
                     )}
                   </div>
                 ))}

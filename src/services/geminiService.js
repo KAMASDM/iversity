@@ -5,11 +5,11 @@ const genAI = new GoogleGenerativeAI(API_KEY);
 
 // Model configurations for different use cases
 const MODELS = {
-  QUESTIONNAIRE: 'gemini-pro',
-  CURRICULUM: 'gemini-pro',
-  QUIZ: 'gemini-pro',
-  BUDDY: 'gemini-pro',
-  EXAM: 'gemini-pro',
+  QUESTIONNAIRE: 'gemini-2.0-flash',
+  CURRICULUM: 'gemini-2.0-flash',
+  QUIZ: 'gemini-2.0-flash',
+  BUDDY: 'gemini-2.0-flash',
+  EXAM: 'gemini-2.0-flash',
 };
 
 // Cache to store recent responses and reduce API calls
@@ -163,37 +163,51 @@ Return in JSON format:
   }
 };
 
-// Virtual Buddy - AI Assistant for students
+// Virtual Buddy - RAG-powered AI Assistant for students
 export const getVirtualBuddyResponse = async (
   userMessage,
   conversationHistory,
-  studentContext
+  studentContext,
+  knowledgeChunks = []
 ) => {
   try {
+    const { retrieveContext } = await import('./ragService.js');
+
+    // Retrieve relevant context from the knowledge base
+    const retrievedContext = retrieveContext(userMessage, knowledgeChunks, 5);
+
     const model = genAI.getGenerativeModel({ model: MODELS.BUDDY });
 
-    const prompt = `
-You are "Buddy", a friendly and knowledgeable AI learning assistant for an AI education platform.
+    const recentHistory = conversationHistory
+      .slice(-6)
+      .map(msg => `${msg.role === 'user' ? 'Student' : 'Buddy'}: ${msg.content}`)
+      .join('\n');
 
-Student Context:
-- Current Module: ${studentContext.currentModule}
-- Progress: ${studentContext.progressPercentage}%
-- Recent Topics: ${studentContext.recentTopics?.join(', ')}
-- Struggling With: ${studentContext.strugglingTopics?.join(', ')}
+    const prompt = `You are "Buddy", a friendly, knowledgeable AI learning assistant for iVersity — an AI-powered education platform. You help students understand course content, answer questions about the platform, and guide their learning journey.
 
-Conversation History:
-${conversationHistory.slice(-5).map(msg => `${msg.role}: ${msg.content}`).join('\n')}
+== RETRIEVED KNOWLEDGE (use this to answer accurately) ==
+${retrievedContext || 'No specific content retrieved — answer from general knowledge about AI education.'}
 
-Student Message: ${userMessage}
+== STUDENT CONTEXT ==
+- Current course/module: ${studentContext.currentModule || 'Unknown'}
+- Overall progress: ${studentContext.progressPercentage || 0}%
+- Recent topics studied: ${studentContext.recentTopics?.join(', ') || 'None yet'}
 
-Provide a helpful, encouraging response that:
-1. Directly addresses the student's question
-2. Offers practical examples when relevant
-3. Suggests next steps or resources
-4. Maintains an encouraging and supportive tone
-5. Keeps responses concise (2-3 paragraphs max)
+== RECENT CONVERSATION ==
+${recentHistory || '(Start of conversation)'}
 
-Response:`;
+== STUDENT'S QUESTION ==
+${userMessage}
+
+== INSTRUCTIONS ==
+- Answer ONLY based on the retrieved knowledge when available. If the knowledge base covers the question, use it directly.
+- If the question isn't covered by the knowledge base, answer from your general AI/ML knowledge.
+- Be concise, clear, and encouraging. Use plain text — no markdown symbols like **, ##, or bullet dashes that would look odd in a chat.
+- If the student asks about a specific lesson or concept, guide them through it step by step.
+- Keep responses to 2-4 short paragraphs maximum.
+- End with a helpful follow-up suggestion if appropriate.
+
+Buddy:`;
 
     const result = await model.generateContent(prompt);
     const response = await result.response;

@@ -1,7 +1,34 @@
 import { Link } from 'react-router-dom';
-import { BookOpen, Users, Award, Bot, TrendingUp, Clock, Sparkles, Zap, Target, GraduationCap, ArrowRight, CheckCircle } from 'lucide-react';
+import { useEffect, useState } from 'react';
+import { BookOpen, Users, Award, Bot, TrendingUp, Clock, Sparkles, Zap, Target, GraduationCap, ArrowRight, CheckCircle, BarChart2, Layers } from 'lucide-react';
+import { getPublishedCourses } from '../services/firestoreService';
+
+const levelConfig = {
+  beginner:     { label: 'Beginner',     color: 'bg-green-500/20 text-green-300 border-green-500/30' },
+  intermediate: { label: 'Intermediate', color: 'bg-blue-500/20 text-blue-300 border-blue-500/30' },
+  advanced:     { label: 'Advanced',     color: 'bg-purple-500/20 text-purple-300 border-purple-500/30' },
+};
+
+const cardAccents = [
+  'from-blue-500/20 to-blue-600/5 hover:border-blue-500/50',
+  'from-purple-500/20 to-purple-600/5 hover:border-purple-500/50',
+  'from-pink-500/20 to-pink-600/5 hover:border-pink-500/50',
+  'from-cyan-500/20 to-cyan-600/5 hover:border-cyan-500/50',
+  'from-indigo-500/20 to-indigo-600/5 hover:border-indigo-500/50',
+  'from-rose-500/20 to-rose-600/5 hover:border-rose-500/50',
+];
 
 const Landing = () => {
+  const [courses, setCourses] = useState([]);
+  const [coursesLoading, setCoursesLoading] = useState(true);
+
+  useEffect(() => {
+    getPublishedCourses()
+      .then(data => setCourses(data))
+      .catch(() => {})
+      .finally(() => setCoursesLoading(false));
+  }, []);
+
   return (
     <div className="min-h-screen bg-gray-950 text-white overflow-hidden">
       {/* Animated Background */}
@@ -94,8 +121,110 @@ const Landing = () => {
       </div>
 
 
+      {/* ── Courses Section ──────────────────────────────────────────── */}
+      <div className="relative py-24 bg-gradient-to-b from-transparent to-gray-900">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+          <div className="text-center mb-16">
+            <div className="inline-flex items-center gap-2 px-4 py-2 rounded-full bg-purple-500/10 border border-purple-500/20 mb-6 backdrop-blur-sm">
+              <Layers className="text-purple-400" size={16} />
+              <span className="text-sm text-purple-300">AI-Powered Curriculum</span>
+            </div>
+            <h2 className="text-5xl font-bold mb-6 bg-gradient-to-r from-blue-400 to-purple-400 bg-clip-text text-transparent">
+              Explore Our Courses
+            </h2>
+            <p className="text-xl text-gray-400 max-w-2xl mx-auto">
+              Hands-on courses built for the AI era — from absolute beginner to production-ready developer
+            </p>
+          </div>
+
+          {/* Loading skeletons */}
+          {coursesLoading && (
+            <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-8">
+              {[...Array(6)].map((_, i) => (
+                <div key={i} className="bg-white/5 border border-white/10 rounded-2xl p-6 animate-pulse">
+                  <div className="h-5 bg-white/10 rounded mb-3 w-3/4"></div>
+                  <div className="h-4 bg-white/10 rounded mb-2 w-full"></div>
+                  <div className="h-4 bg-white/10 rounded mb-6 w-5/6"></div>
+                  <div className="flex gap-3 mb-6">
+                    <div className="h-6 w-20 bg-white/10 rounded-full"></div>
+                    <div className="h-6 w-16 bg-white/10 rounded-full"></div>
+                  </div>
+                  <div className="h-10 bg-white/10 rounded-xl"></div>
+                </div>
+              ))}
+            </div>
+          )}
+
+          {/* Course cards */}
+          {!coursesLoading && courses.length > 0 && (
+            <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-8">
+              {courses.map((course, idx) => {
+                const lvl = levelConfig[course.level] || levelConfig.beginner;
+                const accent = cardAccents[idx % cardAccents.length];
+                const chapterCount = course.chapters?.length || 0;
+                const lessonCount = course.chapters?.reduce((s, ch) => s + (ch.lessons?.length || 0), 0) || 0;
+                return (
+                  <div
+                    key={course.id}
+                    className={`group relative bg-gradient-to-br ${accent} bg-white/5 backdrop-blur-lg border border-white/10 rounded-2xl p-6 flex flex-col transition-all duration-300 hover:scale-[1.02] hover:shadow-2xl`}
+                  >
+                    <div className="flex items-center justify-between mb-4">
+                      <span className={`px-3 py-1 text-xs font-semibold rounded-full border ${lvl.color}`}>
+                        {lvl.label}
+                      </span>
+                      {course.duration && (
+                        <span className="flex items-center gap-1 text-xs text-gray-400">
+                          <Clock size={13} />
+                          {course.duration} weeks
+                        </span>
+                      )}
+                    </div>
+                    <h3 className="text-xl font-bold text-white mb-2 leading-snug group-hover:text-blue-300 transition-colors">
+                      {course.title}
+                    </h3>
+                    <p className="text-gray-400 text-sm leading-relaxed mb-5 flex-1 line-clamp-3">
+                      {course.description}
+                    </p>
+                    <div className="flex items-center gap-4 text-xs text-gray-500 mb-5 border-t border-white/10 pt-4">
+                      <span className="flex items-center gap-1">
+                        <BookOpen size={13} className="text-blue-400" />
+                        {chapterCount} chapters
+                      </span>
+                      <span className="flex items-center gap-1">
+                        <BarChart2 size={13} className="text-purple-400" />
+                        {lessonCount} lessons
+                      </span>
+                      {course.enrolledStudents > 0 && (
+                        <span className="flex items-center gap-1">
+                          <Users size={13} className="text-pink-400" />
+                          {course.enrolledStudents.toLocaleString()} enrolled
+                        </span>
+                      )}
+                    </div>
+                    <Link
+                      to="/register"
+                      className="flex items-center justify-center gap-2 w-full py-3 px-4 bg-gradient-to-r from-blue-600 to-purple-600 hover:from-blue-500 hover:to-purple-500 text-white font-semibold rounded-xl transition-all duration-200 hover:shadow-lg hover:shadow-blue-500/30 text-sm"
+                    >
+                      Get Started Free
+                      <ArrowRight size={16} className="group-hover:translate-x-1 transition-transform" />
+                    </Link>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+
+          {!coursesLoading && courses.length === 0 && (
+            <div className="text-center py-16 text-gray-500">
+              <BookOpen size={48} className="mx-auto mb-4 opacity-30" />
+              <p>Courses are being prepared. Check back soon!</p>
+            </div>
+          )}
+        </div>
+      </div>
+
       {/* Features Section */}
-      <div className="relative py-32 bg-gradient-to-b from-transparent to-gray-900">
+      <div className="relative py-32 bg-gradient-to-b from-gray-900 to-gray-950">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           <div className="text-center mb-20">
             <h2 className="text-5xl font-bold mb-6 bg-gradient-to-r from-blue-400 to-purple-400 bg-clip-text text-transparent">
@@ -107,7 +236,6 @@ const Landing = () => {
           </div>
           
           <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-8">
-            {/* Feature 1 */}
             <div className="group relative bg-white/5 backdrop-blur-lg border border-white/10 rounded-2xl p-8 hover:bg-white/10 transition-all duration-300 hover:scale-105 hover:border-blue-500/50">
               <div className="absolute inset-0 bg-gradient-to-br from-blue-500/10 to-transparent rounded-2xl opacity-0 group-hover:opacity-100 transition-opacity duration-300"></div>
               <div className="relative">
@@ -123,7 +251,6 @@ const Landing = () => {
               </div>
             </div>
 
-            {/* Feature 2 */}
             <div className="group relative bg-white/5 backdrop-blur-lg border border-white/10 rounded-2xl p-8 hover:bg-white/10 transition-all duration-300 hover:scale-105 hover:border-purple-500/50">
               <div className="absolute inset-0 bg-gradient-to-br from-purple-500/10 to-transparent rounded-2xl opacity-0 group-hover:opacity-100 transition-opacity duration-300"></div>
               <div className="relative">
@@ -139,7 +266,6 @@ const Landing = () => {
               </div>
             </div>
 
-            {/* Feature 3 */}
             <div className="group relative bg-white/5 backdrop-blur-lg border border-white/10 rounded-2xl p-8 hover:bg-white/10 transition-all duration-300 hover:scale-105 hover:border-pink-500/50">
               <div className="absolute inset-0 bg-gradient-to-br from-pink-500/10 to-transparent rounded-2xl opacity-0 group-hover:opacity-100 transition-opacity duration-300"></div>
               <div className="relative">
@@ -155,7 +281,6 @@ const Landing = () => {
               </div>
             </div>
 
-            {/* Feature 4 */}
             <div className="group relative bg-white/5 backdrop-blur-lg border border-white/10 rounded-2xl p-8 hover:bg-white/10 transition-all duration-300 hover:scale-105 hover:border-blue-500/50">
               <div className="absolute inset-0 bg-gradient-to-br from-blue-500/10 to-transparent rounded-2xl opacity-0 group-hover:opacity-100 transition-opacity duration-300"></div>
               <div className="relative">
@@ -171,7 +296,6 @@ const Landing = () => {
               </div>
             </div>
 
-            {/* Feature 5 */}
             <div className="group relative bg-white/5 backdrop-blur-lg border border-white/10 rounded-2xl p-8 hover:bg-white/10 transition-all duration-300 hover:scale-105 hover:border-purple-500/50">
               <div className="absolute inset-0 bg-gradient-to-br from-purple-500/10 to-transparent rounded-2xl opacity-0 group-hover:opacity-100 transition-opacity duration-300"></div>
               <div className="relative">
@@ -187,7 +311,6 @@ const Landing = () => {
               </div>
             </div>
 
-            {/* Feature 6 */}
             <div className="group relative bg-white/5 backdrop-blur-lg border border-white/10 rounded-2xl p-8 hover:bg-white/10 transition-all duration-300 hover:scale-105 hover:border-pink-500/50">
               <div className="absolute inset-0 bg-gradient-to-br from-pink-500/10 to-transparent rounded-2xl opacity-0 group-hover:opacity-100 transition-opacity duration-300"></div>
               <div className="relative">
@@ -205,59 +328,6 @@ const Landing = () => {
           </div>
         </div>
       </div>
-
-      {/* How It Works Section */}
-      <div className="relative py-32 bg-gradient-to-b from-gray-900 to-gray-950">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-          <div className="text-center mb-20">
-            <h2 className="text-5xl font-bold mb-6 text-white">
-              How It Works
-            </h2>
-            <p className="text-xl text-gray-400 max-w-2xl mx-auto">
-              Get started in minutes and begin your personalized learning journey
-            </p>
-          </div>
-
-          <div className="grid md:grid-cols-3 gap-12 relative">
-            {/* Connecting Lines */}
-            <div className="hidden md:block absolute top-1/4 left-1/4 w-1/2 h-0.5 bg-gradient-to-r from-blue-500 via-purple-500 to-pink-500 opacity-30"></div>
-            
-            {/* Step 1 */}
-            <div className="relative text-center">
-              <div className="inline-flex items-center justify-center w-20 h-20 rounded-full bg-gradient-to-br from-blue-500 to-blue-600 text-white text-2xl font-bold mb-6 shadow-lg shadow-blue-500/50">
-                1
-              </div>
-              <h3 className="text-2xl font-bold mb-4 text-white">Sign Up & Assess</h3>
-              <p className="text-gray-400 leading-relaxed">
-                Create your account and answer a few questions to help AI understand your level
-              </p>
-            </div>
-
-            {/* Step 2 */}
-            <div className="relative text-center">
-              <div className="inline-flex items-center justify-center w-20 h-20 rounded-full bg-gradient-to-br from-purple-500 to-purple-600 text-white text-2xl font-bold mb-6 shadow-lg shadow-purple-500/50">
-                2
-              </div>
-              <h3 className="text-2xl font-bold mb-4 text-white">Get Custom Plan</h3>
-              <p className="text-gray-400 leading-relaxed">
-                Receive a personalized curriculum generated by AI tailored to your goals
-              </p>
-            </div>
-
-            {/* Step 3 */}
-            <div className="relative text-center">
-              <div className="inline-flex items-center justify-center w-20 h-20 rounded-full bg-gradient-to-br from-pink-500 to-pink-600 text-white text-2xl font-bold mb-6 shadow-lg shadow-pink-500/50">
-                3
-              </div>
-              <h3 className="text-2xl font-bold mb-4 text-white">Learn & Excel</h3>
-              <p className="text-gray-400 leading-relaxed">
-                Master concepts with adaptive quizzes, AI support, and earn your certificate
-              </p>
-            </div>
-          </div>
-        </div>
-      </div>
-
 
       {/* CTA Section */}
       <div className="relative py-32">
