@@ -20,7 +20,8 @@ import { toast } from 'react-toastify';
 import { 
   BookOpen, CheckCircle, Lock, Play, ChevronLeft, ChevronRight,
   Clock, Brain, FileText, Target, TrendingUp, Award, MessageCircle,
-  Download, ExternalLink, Video, File, Lightbulb, ArrowRight
+  Download, ExternalLink, Video, File, Lightbulb, ArrowRight,
+  List, X, Menu
 } from 'lucide-react';
 
 // Inline markdown renderer — converts **bold**, *italic*, `code` to JSX
@@ -52,17 +53,14 @@ const renderInline = (text) => {
 // Presentation Renderer Component
 const PresentationRenderer = ({ content }) => {
   const [currentSlide, setCurrentSlide] = useState(0);
+  const [touchStartX, setTouchStartX] = useState(null);
   
   // Keyboard navigation
   useEffect(() => {
     const handleKeyPress = (e) => {
-      if (e.key === 'ArrowRight') {
-        nextSlide();
-      } else if (e.key === 'ArrowLeft') {
-        prevSlide();
-      }
+      if (e.key === 'ArrowRight') nextSlide();
+      else if (e.key === 'ArrowLeft') prevSlide();
     };
-    
     window.addEventListener('keydown', handleKeyPress);
     return () => window.removeEventListener('keydown', handleKeyPress);
   }, [currentSlide]);
@@ -212,30 +210,58 @@ const PresentationRenderer = ({ content }) => {
     setCurrentSlide(index);
   };
 
+  // Touch swipe handlers
+  const handleTouchStart = (e) => {
+    setTouchStartX(e.touches[0].clientX);
+  };
+  const handleTouchEnd = (e) => {
+    if (touchStartX === null) return;
+    const diff = touchStartX - e.changedTouches[0].clientX;
+    if (Math.abs(diff) > 40) {
+      if (diff > 0) nextSlide(); else prevSlide();
+    }
+    setTouchStartX(null);
+  };
+
+  // Capped dot pagination: show max 7 dots with current always visible
+  const MAX_DOTS = 7;
+  const getDotIndices = () => {
+    if (totalSlides <= MAX_DOTS) return Array.from({ length: totalSlides }, (_, i) => i);
+    const half = Math.floor(MAX_DOTS / 2);
+    let start = Math.max(0, currentSlide - half);
+    let end = start + MAX_DOTS - 1;
+    if (end >= totalSlides) { end = totalSlides - 1; start = Math.max(0, end - MAX_DOTS + 1); }
+    return Array.from({ length: end - start + 1 }, (_, i) => start + i);
+  };
+
   return (
-    <div className="space-y-4">
+    <div className="space-y-3 sm:space-y-4">
       {/* Main Slide Display */}
-      <div className="relative bg-gradient-to-br from-slate-900 via-purple-900/20 to-slate-900 rounded-2xl border-2 border-purple-500/30 overflow-hidden min-h-[500px] shadow-2xl">
+      <div
+        className="relative bg-gradient-to-br from-slate-900 via-purple-900/20 to-slate-900 rounded-xl sm:rounded-2xl border-2 border-purple-500/30 overflow-hidden min-h-[280px] sm:min-h-[400px] lg:min-h-[500px] shadow-2xl select-none"
+        onTouchStart={handleTouchStart}
+        onTouchEnd={handleTouchEnd}
+      >
         {/* Decorative Elements */}
         <div className="absolute top-0 left-0 w-full h-1 bg-gradient-to-r from-blue-500 via-purple-500 to-pink-500"></div>
-        <div className="absolute top-0 right-0 w-64 h-64 bg-purple-500/10 rounded-full blur-3xl"></div>
-        <div className="absolute bottom-0 left-0 w-64 h-64 bg-blue-500/10 rounded-full blur-3xl"></div>
+        <div className="absolute top-0 right-0 w-40 sm:w-64 h-40 sm:h-64 bg-purple-500/10 rounded-full blur-3xl"></div>
+        <div className="absolute bottom-0 left-0 w-40 sm:w-64 h-40 sm:h-64 bg-blue-500/10 rounded-full blur-3xl"></div>
         
         {/* Slide Content */}
-        <div className="relative z-10 p-12 min-h-[500px] flex flex-col justify-center">
+        <div className="relative z-10 p-4 sm:p-8 lg:p-12 min-h-[280px] sm:min-h-[400px] lg:min-h-[500px] flex flex-col justify-center">
           {slide.type === 'title' ? (
             // Title Slide
             <div className="text-center">
-              <div className="mb-6">
-                <Lightbulb className="mx-auto text-yellow-400 animate-pulse" size={64} />
+              <div className="mb-4">
+                <Lightbulb className="mx-auto text-yellow-400 animate-pulse" size={40} />
               </div>
-              <h1 className="text-5xl md:text-6xl font-extrabold text-white mb-6 leading-tight">
+              <h1 className="text-2xl sm:text-4xl lg:text-5xl font-extrabold text-white mb-4 leading-tight">
                 {slide.title}
               </h1>
               {slide.content.length > 0 && (
-                <div className="space-y-4 max-w-3xl mx-auto">
+                <div className="space-y-3 max-w-3xl mx-auto">
                   {slide.content.map((item, idx) => (
-                    <p key={idx} className="text-xl text-gray-300 leading-relaxed">
+                    <p key={idx} className="text-sm sm:text-lg lg:text-xl text-gray-300 leading-relaxed">
                       {renderInline(item.text)}
                     </p>
                   ))}
@@ -245,10 +271,10 @@ const PresentationRenderer = ({ content }) => {
           ) : (
             // Content Slide
             <div>
-              <h2 className="text-4xl font-bold text-white mb-8 border-b-4 border-purple-500 pb-4 inline-block">
+              <h2 className="text-xl sm:text-3xl lg:text-4xl font-bold text-white mb-4 sm:mb-8 border-b-4 border-purple-500 pb-2 sm:pb-4 inline-block">
                 {slide.title}
               </h2>
-              <div className="space-y-4 mt-8">
+              <div className="space-y-2 sm:space-y-4 mt-4 sm:mt-8">
                 {slide.content.map((item, idx) => (
                   <div 
                     key={idx} 
@@ -256,52 +282,52 @@ const PresentationRenderer = ({ content }) => {
                       item.type === 'code' || item.type === 'table'
                         ? ''
                         : item.type === 'subheading'
-                        ? 'pt-2'
-                        : 'flex items-start gap-4 p-4 bg-white/5 backdrop-blur-sm rounded-xl border border-white/10 hover:bg-white/10 transition-all'
+                        ? 'pt-1.5 sm:pt-2'
+                        : 'flex items-start gap-2 sm:gap-4 p-2.5 sm:p-4 bg-white/5 backdrop-blur-sm rounded-lg sm:rounded-xl border border-white/10'
                     }`}
                     style={{ animationDelay: `${idx * 0.05}s` }}
                   >
                     {/* Bullet */}
                     {item.type === 'bullet' && (
                       <>
-                        <div className="flex-shrink-0 w-3 h-3 bg-gradient-to-r from-blue-500 to-purple-500 rounded-full mt-2"></div>
-                        <p className="text-xl text-gray-200 leading-relaxed flex-1">{renderInline(item.text)}</p>
+                        <div className="flex-shrink-0 w-2 h-2 sm:w-3 sm:h-3 bg-gradient-to-r from-blue-500 to-purple-500 rounded-full mt-1.5 sm:mt-2"></div>
+                        <p className="text-sm sm:text-xl text-gray-200 leading-relaxed flex-1">{renderInline(item.text)}</p>
                       </>
                     )}
                     {/* Numbered */}
                     {item.type === 'numbered' && (
                       <>
-                        <div className="flex-shrink-0 w-8 h-8 bg-gradient-to-r from-purple-500 to-pink-500 rounded-full flex items-center justify-center font-bold text-white text-sm">
+                        <div className="flex-shrink-0 w-6 h-6 sm:w-8 sm:h-8 bg-gradient-to-r from-purple-500 to-pink-500 rounded-full flex items-center justify-center font-bold text-white text-xs sm:text-sm">
                           {idx + 1}
                         </div>
-                        <p className="text-xl text-gray-200 leading-relaxed flex-1">{renderInline(item.text)}</p>
+                        <p className="text-sm sm:text-xl text-gray-200 leading-relaxed flex-1">{renderInline(item.text)}</p>
                       </>
                     )}
                     {/* Paragraph */}
                     {item.type === 'paragraph' && (
-                      <p className="text-xl text-gray-200 leading-relaxed">{renderInline(item.text)}</p>
+                      <p className="text-sm sm:text-xl text-gray-200 leading-relaxed">{renderInline(item.text)}</p>
                     )}
                     {/* Sub-subheading (###) */}
                     {item.type === 'subheading' && (
-                      <h3 className="text-2xl font-semibold text-purple-300 border-l-4 border-purple-500 pl-4 py-1">
+                      <h3 className="text-base sm:text-2xl font-semibold text-purple-300 border-l-4 border-purple-500 pl-3 sm:pl-4 py-1">
                         {item.text}
                       </h3>
                     )}
                     {/* Code block */}
                     {item.type === 'code' && (
-                      <div className="w-full rounded-xl overflow-hidden border border-white/10">
-                        <div className="flex items-center gap-2 px-4 py-2 bg-gray-800/90 border-b border-white/10">
+                      <div className="w-full rounded-lg sm:rounded-xl overflow-hidden border border-white/10">
+                        <div className="flex items-center gap-2 px-3 py-1.5 bg-gray-800/90 border-b border-white/10">
                           <div className="flex gap-1.5">
-                            <div className="w-3 h-3 rounded-full bg-red-500/80"></div>
-                            <div className="w-3 h-3 rounded-full bg-yellow-500/80"></div>
-                            <div className="w-3 h-3 rounded-full bg-green-500/80"></div>
+                            <div className="w-2.5 h-2.5 rounded-full bg-red-500/80"></div>
+                            <div className="w-2.5 h-2.5 rounded-full bg-yellow-500/80"></div>
+                            <div className="w-2.5 h-2.5 rounded-full bg-green-500/80"></div>
                           </div>
                           {item.language && (
-                            <span className="text-xs text-gray-400 font-mono ml-2 uppercase tracking-wide">{item.language}</span>
+                            <span className="text-xs text-gray-400 font-mono ml-1 uppercase tracking-wide">{item.language}</span>
                           )}
                         </div>
-                        <pre className="bg-gray-950/90 p-4 overflow-x-auto max-h-72">
-                          <code className="text-green-300 text-sm font-mono leading-relaxed whitespace-pre">
+                        <pre className="bg-gray-950/90 p-3 sm:p-4 overflow-x-auto max-h-52 sm:max-h-72">
+                          <code className="text-green-300 text-xs sm:text-sm font-mono leading-relaxed whitespace-pre">
                             {item.lines.join('\n')}
                           </code>
                         </pre>
@@ -309,15 +335,15 @@ const PresentationRenderer = ({ content }) => {
                     )}
                     {/* Markdown table */}
                     {item.type === 'table' && (
-                      <div className="w-full overflow-x-auto rounded-xl border border-white/10">
+                      <div className="w-full overflow-x-auto rounded-lg sm:rounded-xl border border-white/10">
                         <table className="w-full">
                           <tbody>
                             {item.rows.map((row, rowIdx) => (
                               <tr key={rowIdx} className={rowIdx === 0 ? 'bg-purple-500/25' : rowIdx % 2 === 0 ? 'bg-white/5' : ''}>
                                 {row.map((cell, cellIdx) => (
                                   rowIdx === 0
-                                    ? <th key={cellIdx} className="px-4 py-3 text-left text-sm font-semibold text-purple-200 border-b border-white/10 first:rounded-tl-xl last:rounded-tr-xl">{renderInline(cell)}</th>
-                                    : <td key={cellIdx} className="px-4 py-3 text-sm text-gray-200 border-b border-white/5">{renderInline(cell)}</td>
+                                    ? <th key={cellIdx} className="px-3 py-2 sm:px-4 sm:py-3 text-left text-xs sm:text-sm font-semibold text-purple-200 border-b border-white/10">{renderInline(cell)}</th>
+                                    : <td key={cellIdx} className="px-3 py-2 sm:px-4 sm:py-3 text-xs sm:text-sm text-gray-200 border-b border-white/5">{renderInline(cell)}</td>
                                 ))}
                               </tr>
                             ))}
@@ -332,52 +358,54 @@ const PresentationRenderer = ({ content }) => {
           )}
         </div>
 
-        {/* Slide Number */}
-        <div className="absolute bottom-6 right-6 px-4 py-2 bg-white/10 backdrop-blur-md rounded-full border border-white/20">
-          <span className="text-white font-semibold">{currentSlide + 1} / {totalSlides}</span>
+        {/* Slide counter badge */}
+        <div className="absolute bottom-3 right-3 px-3 py-1 bg-white/10 backdrop-blur-md rounded-full border border-white/20">
+          <span className="text-white text-xs sm:text-sm font-semibold">{currentSlide + 1} / {totalSlides}</span>
         </div>
       </div>
 
       {/* Navigation Controls */}
-      <div className="flex items-center justify-between">
+      <div className="flex items-center justify-between gap-2">
         <button
           onClick={prevSlide}
           disabled={currentSlide === 0}
-          className="flex items-center gap-2 px-6 py-3 bg-white/10 hover:bg-white/20 text-white rounded-xl transition-all disabled:opacity-30 disabled:cursor-not-allowed"
+          className="flex items-center gap-1.5 px-3 sm:px-6 py-2.5 sm:py-3 bg-white/10 hover:bg-white/20 text-white rounded-xl transition-all disabled:opacity-30 disabled:cursor-not-allowed text-sm"
         >
-          <ChevronLeft size={20} />
-          Previous
+          <ChevronLeft size={18} />
+          <span className="hidden sm:inline">Previous</span>
         </button>
 
-        {/* Slide Dots */}
-        <div className="flex gap-2">
-          {slides.map((_, idx) => (
+        {/* Capped dot pagination */}
+        <div className="flex gap-1.5 items-center">
+          {getDotIndices()[0] > 0 && <span className="text-gray-500 text-xs">&#8230;</span>}
+          {getDotIndices().map((idx) => (
             <button
               key={idx}
               onClick={() => goToSlide(idx)}
-              className={`w-3 h-3 rounded-full transition-all ${
+              className={`rounded-full transition-all ${
                 idx === currentSlide 
-                  ? 'bg-gradient-to-r from-blue-500 to-purple-500 w-8' 
-                  : 'bg-white/20 hover:bg-white/40'
+                  ? 'bg-gradient-to-r from-blue-500 to-purple-500 w-6 h-2.5' 
+                  : 'w-2.5 h-2.5 bg-white/20 hover:bg-white/40'
               }`}
               aria-label={`Go to slide ${idx + 1}`}
             />
           ))}
+          {getDotIndices()[getDotIndices().length - 1] < totalSlides - 1 && <span className="text-gray-500 text-xs">&#8230;</span>}
         </div>
 
         <button
           onClick={nextSlide}
           disabled={currentSlide === totalSlides - 1}
-          className="flex items-center gap-2 px-6 py-3 bg-gradient-to-r from-blue-600 to-purple-600 hover:from-blue-500 hover:to-purple-500 text-white rounded-xl transition-all disabled:opacity-30 disabled:cursor-not-allowed shadow-lg"
+          className="flex items-center gap-1.5 px-3 sm:px-6 py-2.5 sm:py-3 bg-gradient-to-r from-blue-600 to-purple-600 hover:from-blue-500 hover:to-purple-500 text-white rounded-xl transition-all disabled:opacity-30 disabled:cursor-not-allowed shadow-lg text-sm"
         >
-          Next
-          <ChevronRight size={20} />
+          <span className="hidden sm:inline">Next</span>
+          <ChevronRight size={18} />
         </button>
       </div>
 
-      {/* Keyboard Navigation Hint */}
-      <div className="text-center text-sm text-gray-400">
-        <p>💡 Tip: Use arrow keys to navigate slides</p>
+      {/* Keyboard hint — desktop only */}
+      <div className="hidden sm:block text-center text-sm text-gray-400">
+        <p>Tip: Use arrow keys to navigate slides</p>
       </div>
     </div>
   );
@@ -400,6 +428,7 @@ const EnhancedCourseRoom = () => {
   const [loading, setLoading] = useState(true);
   const [quizLoading, setQuizLoading] = useState(false);
   const [activeTab, setActiveTab] = useState('content'); // content, notes, todo, gamification
+  const [showChapterDrawer, setShowChapterDrawer] = useState(false);
 
   useEffect(() => {
     loadCourseData();
@@ -594,116 +623,101 @@ const EnhancedCourseRoom = () => {
 
   return (
     <StudentLayout>
-      <div className="space-y-6">
+      <div className="space-y-3 sm:space-y-6">
         {/* Header with Progress */}
-        <div className="bg-gradient-to-r from-purple-600 to-blue-600 rounded-2xl p-6 text-white">
-          <div className="flex items-start justify-between mb-4">
-            <div>
-              <h1 className="text-3xl font-bold mb-2">{course.title}</h1>
-              <p className="text-blue-100">Chapter {currentChapterIndex + 1}: {currentChapter?.title}</p>
+        <div className="bg-gradient-to-r from-purple-600 to-blue-600 rounded-xl sm:rounded-2xl p-4 sm:p-6 text-white">
+          <div className="flex items-start justify-between mb-3">
+            <div className="flex-1 min-w-0 pr-3">
+              <h1 className="text-base sm:text-2xl lg:text-3xl font-bold mb-0.5 sm:mb-2 leading-snug line-clamp-2">{course.title}</h1>
+              <p className="text-blue-100 text-xs sm:text-sm truncate">Ch {currentChapterIndex + 1}: {currentChapter?.title}</p>
             </div>
-            <button
-              onClick={toggleBuddy}
-              className="flex items-center gap-2 px-4 py-2 bg-white/20 hover:bg-white/30 rounded-lg transition-colors"
-            >
-              <MessageCircle size={20} />
-              Ask Buddy
-            </button>
+            <div className="flex items-center gap-2 flex-shrink-0">
+              {/* Chapter list toggle — mobile only */}
+              <button
+                onClick={() => setShowChapterDrawer(true)}
+                className="lg:hidden flex items-center gap-1.5 px-3 py-2 bg-white/20 hover:bg-white/30 rounded-lg transition-colors text-sm"
+              >
+                <List size={16} />
+                <span className="hidden sm:inline">Chapters</span>
+              </button>
+              <button
+                onClick={toggleBuddy}
+                className="flex items-center gap-1.5 px-3 py-2 bg-white/20 hover:bg-white/30 rounded-lg transition-colors text-sm"
+              >
+                <MessageCircle size={16} />
+                <span className="hidden sm:inline">Ask Buddy</span>
+              </button>
+            </div>
           </div>
           
           {/* Progress Bar */}
-          <div className="space-y-2">
-            <div className="flex justify-between text-sm">
-              <span>Overall Progress</span>
-              <span>{completedLessons} / {totalLessons} lessons</span>
+          <div className="space-y-1">
+            <div className="flex justify-between text-xs sm:text-sm">
+              <span>Progress</span>
+              <span>{completedLessons}/{totalLessons} lessons</span>
             </div>
-            <div className="w-full bg-white/20 rounded-full h-3">
+            <div className="w-full bg-white/20 rounded-full h-2 sm:h-3">
               <div
-                className="bg-gradient-to-r from-green-400 to-blue-400 h-3 rounded-full transition-all duration-500"
+                className="bg-gradient-to-r from-green-400 to-blue-400 h-2 sm:h-3 rounded-full transition-all duration-500"
                 style={{ width: `${progressPercentage}%` }}
               />
             </div>
-            <p className="text-sm text-blue-100">{progressPercentage.toFixed(0)}% Complete</p>
+            <p className="text-xs text-blue-100">{progressPercentage.toFixed(0)}% Complete</p>
           </div>
         </div>
 
-        <div className="grid lg:grid-cols-4 gap-6">
+        <div className="grid lg:grid-cols-4 gap-4 sm:gap-6">
           {/* Main Content Area */}
-          <div className="lg:col-span-3 space-y-6">
+          <div className="lg:col-span-3 space-y-3 sm:space-y-6">
             {/* Tab Navigation */}
-            <div className="bg-white/5 backdrop-blur-lg border border-white/10 rounded-2xl p-2 flex gap-2">
-              <button
-                onClick={() => setActiveTab('content')}
-                className={`flex-1 px-4 py-2 rounded-lg font-medium transition-colors ${
-                  activeTab === 'content'
-                    ? 'bg-gradient-to-r from-blue-600 to-purple-600 text-white'
-                    : 'text-gray-400 hover:text-white'
-                }`}
-              >
-                <BookOpen size={18} className="inline mr-2" />
-                Content
-              </button>
-              <button
-                onClick={() => setActiveTab('notes')}
-                className={`flex-1 px-4 py-2 rounded-lg font-medium transition-colors ${
-                  activeTab === 'notes'
-                    ? 'bg-gradient-to-r from-blue-600 to-purple-600 text-white'
-                    : 'text-gray-400 hover:text-white'
-                }`}
-              >
-                <FileText size={18} className="inline mr-2" />
-                Notes
-              </button>
-              <button
-                onClick={() => setActiveTab('todo')}
-                className={`flex-1 px-4 py-2 rounded-lg font-medium transition-colors ${
-                  activeTab === 'todo'
-                    ? 'bg-gradient-to-r from-blue-600 to-purple-600 text-white'
-                    : 'text-gray-400 hover:text-white'
-                }`}
-              >
-                <Target size={18} className="inline mr-2" />
-                Tasks
-              </button>
-              <button
-                onClick={() => setActiveTab('gamification')}
-                className={`flex-1 px-4 py-2 rounded-lg font-medium transition-colors ${
-                  activeTab === 'gamification'
-                    ? 'bg-gradient-to-r from-blue-600 to-purple-600 text-white'
-                    : 'text-gray-400 hover:text-white'
-                }`}
-              >
-                <Award size={18} className="inline mr-2" />
-                Progress
-              </button>
+            <div className="bg-white/5 backdrop-blur-lg border border-white/10 rounded-xl p-1.5 flex gap-1">
+              {[
+                { id: 'content',       icon: BookOpen, label: 'Content'  },
+                { id: 'notes',         icon: FileText,  label: 'Notes'    },
+                { id: 'todo',          icon: Target,    label: 'Tasks'    },
+                { id: 'gamification',  icon: Award,     label: 'Progress' },
+              ].map(({ id, icon: Icon, label }) => (
+                <button
+                  key={id}
+                  onClick={() => setActiveTab(id)}
+                  className={`flex-1 flex items-center justify-center gap-1.5 px-2 py-2 sm:px-4 rounded-lg font-medium transition-colors text-xs sm:text-sm ${
+                    activeTab === id
+                      ? 'bg-gradient-to-r from-blue-600 to-purple-600 text-white'
+                      : 'text-gray-400 hover:text-white'
+                  }`}
+                >
+                  <Icon size={16} className="flex-shrink-0" />
+                  <span className="hidden sm:inline">{label}</span>
+                </button>
+              ))}
             </div>
 
             {/* Content Display */}
             {activeTab === 'content' && !showQuiz && (
-              <div className="bg-white/5 backdrop-blur-lg border border-white/10 rounded-2xl p-6">
-                <div className="mb-6">
-                  <div className="flex items-center gap-3 mb-4">
-                    <span className="px-3 py-1 bg-blue-500/20 text-blue-300 text-sm font-medium rounded-full border border-blue-500/30">
-                      Lesson {currentLessonIndex + 1} of {currentChapter?.lessons?.length || 0}
+              <div className="bg-white/5 backdrop-blur-lg border border-white/10 rounded-xl sm:rounded-2xl p-3 sm:p-6">
+                <div className="mb-4 sm:mb-6">
+                  <div className="flex flex-wrap items-center gap-2 mb-3">
+                    <span className="px-2.5 py-1 bg-blue-500/20 text-blue-300 text-xs font-medium rounded-full border border-blue-500/30">
+                      Lesson {currentLessonIndex + 1}/{currentChapter?.lessons?.length || 0}
                     </span>
                     {isLessonCompleted(currentChapter.id, currentLesson.id) && (
-                      <span className="px-3 py-1 bg-green-500/20 text-green-300 text-sm font-medium rounded-full border border-green-500/30 flex items-center gap-1">
-                        <CheckCircle size={16} />
-                        Completed
+                      <span className="px-2.5 py-1 bg-green-500/20 text-green-300 text-xs font-medium rounded-full border border-green-500/30 flex items-center gap-1">
+                        <CheckCircle size={12} />
+                        Done
                       </span>
                     )}
-                    <span className="px-3 py-1 bg-purple-500/20 text-purple-300 text-sm font-medium rounded-full border border-purple-500/30">
+                    <span className="px-2.5 py-1 bg-purple-500/20 text-purple-300 text-xs font-medium rounded-full border border-purple-500/30">
                       {currentLesson?.duration || '30 min'}
                     </span>
                   </div>
                   
-                  <h2 className="text-3xl font-bold text-white mb-3">{currentLesson?.title}</h2>
+                  <h2 className="text-xl sm:text-3xl font-bold text-white mb-2">{currentLesson?.title}</h2>
                   
                   {/* Lesson Type Badge */}
-                  <div className="flex items-center gap-2 text-gray-400">
-                    {currentLesson?.type === 'video' && <Video size={18} />}
-                    {currentLesson?.type === 'document' && <File size={18} />}
-                    {currentLesson?.type === 'article' && <FileText size={18} />}
+                  <div className="flex items-center gap-1.5 text-gray-400 text-xs sm:text-sm">
+                    {currentLesson?.type === 'video' && <Video size={14} />}
+                    {currentLesson?.type === 'document' && <File size={14} />}
+                    {currentLesson?.type === 'article' && <FileText size={14} />}
                     <span className="capitalize">{currentLesson?.type} Lesson</span>
                   </div>
                 </div>
@@ -761,47 +775,48 @@ const EnhancedCourseRoom = () => {
                 )}
 
                 {/* Lesson Navigation */}
-                <div className="flex items-center justify-between pt-6 border-t border-white/10">
-                  <button
-                    onClick={handlePreviousLesson}
-                    disabled={currentChapterIndex === 0 && currentLessonIndex === 0}
-                    className="flex items-center gap-2 px-6 py-3 bg-white/10 hover:bg-white/20 text-white rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-                  >
-                    <ChevronLeft size={20} />
-                    Previous
-                  </button>
-                  
-                  <div className="flex gap-3">
+                <div className="pt-4 sm:pt-6 border-t border-white/10 space-y-3">
+                  {/* Action buttons row */}
+                  <div className="flex gap-2">
                     {!isLessonCompleted(currentChapter.id, currentLesson.id) && (
                       <button
                         onClick={markLessonComplete}
-                        className="flex items-center gap-2 px-6 py-3 bg-gradient-to-r from-green-600 to-emerald-600 text-white rounded-lg hover:scale-105 transition-transform"
+                        className="flex-1 flex items-center justify-center gap-1.5 px-3 py-2.5 sm:py-3 bg-gradient-to-r from-green-600 to-emerald-600 text-white rounded-lg hover:scale-105 transition-transform text-sm font-medium"
                       >
-                        <CheckCircle size={20} />
-                        Mark Complete
+                        <CheckCircle size={16} />
+                        <span>Mark Complete</span>
                       </button>
                     )}
-                    
                     {currentLessonIndex === (currentChapter?.lessons?.length || 1) - 1 && currentChapter?.quiz?.enabled && (
                       <button
                         onClick={handleStartQuiz}
                         disabled={quizLoading}
-                        className="flex items-center gap-2 px-6 py-3 bg-gradient-to-r from-yellow-600 to-orange-600 text-white rounded-lg hover:scale-105 transition-transform disabled:opacity-50"
+                        className="flex-1 flex items-center justify-center gap-1.5 px-3 py-2.5 sm:py-3 bg-gradient-to-r from-yellow-600 to-orange-600 text-white rounded-lg hover:scale-105 transition-transform disabled:opacity-50 text-sm font-medium"
                       >
-                        <Brain size={20} />
-                        {quizLoading ? 'Loading Quiz...' : 'Take Quiz'}
+                        <Brain size={16} />
+                        <span>{quizLoading ? 'Loading...' : 'Take Quiz'}</span>
                       </button>
                     )}
                   </div>
-
-                  <button
-                    onClick={handleNextLesson}
-                    disabled={currentChapterIndex === chapters.length - 1 && currentLessonIndex === (currentChapter?.lessons?.length || 1) - 1}
-                    className="flex items-center gap-2 px-6 py-3 bg-white/10 hover:bg-white/20 text-white rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-                  >
-                    Next
-                    <ChevronRight size={20} />
-                  </button>
+                  {/* Prev / Next row */}
+                  <div className="flex gap-2">
+                    <button
+                      onClick={handlePreviousLesson}
+                      disabled={currentChapterIndex === 0 && currentLessonIndex === 0}
+                      className="flex-1 flex items-center justify-center gap-1.5 px-3 py-2.5 bg-white/10 hover:bg-white/20 text-white rounded-lg transition-colors disabled:opacity-30 disabled:cursor-not-allowed text-sm"
+                    >
+                      <ChevronLeft size={16} />
+                      Prev
+                    </button>
+                    <button
+                      onClick={handleNextLesson}
+                      disabled={currentChapterIndex === chapters.length - 1 && currentLessonIndex === (currentChapter?.lessons?.length || 1) - 1}
+                      className="flex-1 flex items-center justify-center gap-1.5 px-3 py-2.5 bg-white/10 hover:bg-white/20 text-white rounded-lg transition-colors disabled:opacity-30 disabled:cursor-not-allowed text-sm"
+                    >
+                      Next
+                      <ChevronRight size={16} />
+                    </button>
+                  </div>
                 </div>
               </div>
             )}
@@ -874,66 +889,100 @@ const EnhancedCourseRoom = () => {
             )}
           </div>
 
-          {/* Sidebar - Chapter & Lesson Navigation */}
-          <div className="space-y-4">
-            <div className="bg-white/5 backdrop-blur-lg border border-white/10 rounded-2xl p-6">
-              <h3 className="font-semibold text-lg mb-4 text-white">Course Content</h3>
-              <div className="space-y-3 max-h-[600px] overflow-y-auto">
-                {chapters.map((chapter, chIndex) => (
-                  <div key={chapter.id} className="space-y-2">
-                    <div
-                      className={`p-3 rounded-lg cursor-pointer transition-colors ${
-                        chIndex === currentChapterIndex
-                          ? 'bg-blue-500/20 border border-blue-500/30'
-                          : 'bg-white/5 border border-white/10 hover:bg-white/10'
-                      }`}
-                      onClick={() => {
-                        setCurrentChapterIndex(chIndex);
-                        setCurrentLessonIndex(0);
-                      }}
-                    >
-                      <p className="font-medium text-white text-sm">
-                        Chapter {chIndex + 1}: {chapter.title}
-                      </p>
-                      <p className="text-xs text-gray-400 mt-1">
-                        {chapter.lessons?.length || 0} lessons
-                      </p>
-                    </div>
-                    
-                    {chIndex === currentChapterIndex && (
-                      <div className="ml-4 space-y-2">
-                        {chapter.lessons?.map((lesson, lIndex) => {
-                          const completed = isLessonCompleted(chapter.id, lesson.id);
-                          return (
-                            <div
-                              key={lesson.id}
-                              onClick={() => setCurrentLessonIndex(lIndex)}
-                              className={`p-2 rounded-lg cursor-pointer flex items-center gap-2 transition-colors ${
-                                lIndex === currentLessonIndex
-                                  ? 'bg-purple-500/20 border border-purple-500/30'
-                                  : 'bg-white/5 hover:bg-white/10'
-                              }`}
-                            >
-                              {completed ? (
-                                <CheckCircle size={16} className="text-green-400 flex-shrink-0" />
-                              ) : (
-                                <div className="w-4 h-4 rounded-full border-2 border-white/20 flex-shrink-0" />
-                              )}
-                              <span className="text-sm text-white">{lesson.title}</span>
-                            </div>
-                          );
-                        })}
-                      </div>
-                    )}
-                  </div>
-                ))}
-              </div>
-            </div>
+          {/* Sidebar — desktop only; mobile uses bottom drawer */}
+          <div className="hidden lg:block space-y-4">
+            <CourseContentSidebar
+              chapters={chapters}
+              currentChapterIndex={currentChapterIndex}
+              currentLessonIndex={currentLessonIndex}
+              isLessonCompleted={isLessonCompleted}
+              onSelectChapter={(ci) => { setCurrentChapterIndex(ci); setCurrentLessonIndex(0); }}
+              onSelectLesson={(li) => setCurrentLessonIndex(li)}
+            />
           </div>
         </div>
       </div>
+
+      {/* Mobile Chapter Drawer ─────────────────────────────────────────── */}
+      {showChapterDrawer && (
+        <div className="lg:hidden fixed inset-0 z-50 flex items-end">
+          <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" onClick={() => setShowChapterDrawer(false)} />
+          <div className="relative w-full bg-[#0d1117] border border-white/10 rounded-t-3xl max-h-[80dvh] overflow-hidden flex flex-col z-10">
+            <div className="flex items-center justify-between px-5 py-4 border-b border-white/10">
+              <h3 className="font-semibold text-white text-base">Course Content</h3>
+              <button onClick={() => setShowChapterDrawer(false)} className="p-1.5 rounded-lg hover:bg-white/10 text-gray-400">
+                <X size={20} />
+              </button>
+            </div>
+            <div className="overflow-y-auto flex-1 p-4">
+              <CourseContentSidebar
+                chapters={chapters}
+                currentChapterIndex={currentChapterIndex}
+                currentLessonIndex={currentLessonIndex}
+                isLessonCompleted={isLessonCompleted}
+                onSelectChapter={(ci) => { setCurrentChapterIndex(ci); setCurrentLessonIndex(0); setShowChapterDrawer(false); }}
+                onSelectLesson={(li) => { setCurrentLessonIndex(li); setShowChapterDrawer(false); }}
+              />
+            </div>
+          </div>
+        </div>
+      )}
     </StudentLayout>
   );
 };
+
+// ── Reusable chapter/lesson sidebar ─────────────────────────────────────────
+const CourseContentSidebar = ({
+  chapters, currentChapterIndex, currentLessonIndex, isLessonCompleted,
+  onSelectChapter, onSelectLesson
+}) => (
+  <div className="bg-white/5 backdrop-blur-lg border border-white/10 rounded-2xl p-4 sm:p-6">
+    <h3 className="font-semibold text-sm sm:text-lg mb-3 sm:mb-4 text-white">Course Content</h3>
+    <div className="space-y-2 sm:space-y-3 max-h-[60dvh] lg:max-h-[600px] overflow-y-auto pr-1">
+      {chapters.map((chapter, chIndex) => (
+        <div key={chapter.id} className="space-y-1.5">
+          <div
+            className={`p-2.5 sm:p-3 rounded-lg cursor-pointer transition-colors ${
+              chIndex === currentChapterIndex
+                ? 'bg-blue-500/20 border border-blue-500/30'
+                : 'bg-white/5 border border-white/10 hover:bg-white/10'
+            }`}
+            onClick={() => onSelectChapter(chIndex)}
+          >
+            <p className="font-medium text-white text-xs sm:text-sm">
+              Ch {chIndex + 1}: {chapter.title}
+            </p>
+            <p className="text-xs text-gray-400 mt-0.5">{chapter.lessons?.length || 0} lessons</p>
+          </div>
+          {chIndex === currentChapterIndex && (
+            <div className="ml-3 sm:ml-4 space-y-1 sm:space-y-2">
+              {chapter.lessons?.map((lesson, lIndex) => {
+                const completed = isLessonCompleted(chapter.id, lesson.id);
+                return (
+                  <div
+                    key={lesson.id}
+                    onClick={() => onSelectLesson(lIndex)}
+                    className={`p-1.5 sm:p-2 rounded-lg cursor-pointer flex items-center gap-2 transition-colors ${
+                      lIndex === currentLessonIndex
+                        ? 'bg-purple-500/20 border border-purple-500/30'
+                        : 'bg-white/5 hover:bg-white/10'
+                    }`}
+                  >
+                    {completed ? (
+                      <CheckCircle size={14} className="text-green-400 flex-shrink-0" />
+                    ) : (
+                      <div className="w-3.5 h-3.5 rounded-full border-2 border-white/20 flex-shrink-0" />
+                    )}
+                    <span className="text-xs sm:text-sm text-white leading-snug">{lesson.title}</span>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </div>
+      ))}
+    </div>
+  </div>
+);
 
 export default EnhancedCourseRoom;
