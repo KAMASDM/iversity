@@ -4,6 +4,9 @@
 
 [build.environment]
   NODE_VERSION = "20"
+  # Firebase web API keys are intentionally public (security is via Firebase Rules).
+  # Disable Netlify's smart secret detection to prevent false positives on VITE_ vars.
+  SECRETS_SCAN_SMART_DETECTION_ENABLED = "false"
 
 [[redirects]]
   from = "/*"
