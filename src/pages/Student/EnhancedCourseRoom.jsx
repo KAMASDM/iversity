@@ -55,6 +55,11 @@ const PresentationRenderer = ({ content }) => {
   const [currentSlide, setCurrentSlide] = useState(0);
   const [touchStartX, setTouchStartX] = useState(null);
   
+  // Reset to first slide whenever the lesson content changes
+  useEffect(() => {
+    setCurrentSlide(0);
+  }, [content]);
+
   // Keyboard navigation
   useEffect(() => {
     const handleKeyPress = (e) => {
@@ -192,7 +197,9 @@ const PresentationRenderer = ({ content }) => {
 
   const slides = parseContentToSlides(content);
   const totalSlides = slides.length;
-  const slide = slides[currentSlide];
+  // Clamp index in case it's stale from a previous lesson
+  const safeIndex = Math.min(currentSlide, totalSlides - 1);
+  const slide = slides[safeIndex];
 
   const nextSlide = () => {
     if (currentSlide < totalSlides - 1) {
