@@ -708,6 +708,52 @@ export const updateStreak = async (userId, courseId) => {
   }
 };
 
+// ============= COURSE PPT/PDF FILES (stored in Firestore as base64) =============
+
+export const addCoursePptFile = async (courseId, fileName, fileType, base64Data, sizeBytes) => {
+  try {
+    const fileRef = doc(collection(db, 'courseFiles'));
+    await setDoc(fileRef, {
+      id: fileRef.id,
+      courseId,
+      name: fileName,
+      fileType,
+      data: base64Data,
+      sizeBytes,
+      createdAt: serverTimestamp(),
+    });
+    return fileRef.id;
+  } catch (error) {
+    console.error('Error saving PPT file to Firestore:', error);
+    throw error;
+  }
+};
+
+export const getCoursePptFiles = async (courseId) => {
+  try {
+    const q = query(
+      collection(db, 'courseFiles'),
+      where('courseId', '==', courseId)
+    );
+    const snap = await getDocs(q);
+    return snap.docs
+      .map(d => ({ id: d.id, ...d.data() }))
+      .sort((a, b) => (a.createdAt?.seconds ?? 0) - (b.createdAt?.seconds ?? 0));
+  } catch (error) {
+    console.error('Error fetching PPT files:', error);
+    throw error;
+  }
+};
+
+export const deleteCoursePptFile = async (fileId) => {
+  try {
+    await deleteDoc(doc(db, 'courseFiles', fileId));
+  } catch (error) {
+    console.error('Error deleting PPT file:', error);
+    throw error;
+  }
+};
+
 export default {
   createCourse,
   getCourse,

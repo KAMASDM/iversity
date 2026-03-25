@@ -1,12 +1,12 @@
 import { useState, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import AdminLayout from '../../components/Layout/AdminLayout';
-import { getCourse, updateCourse } from '../../services/firestoreService';
+import { getCourse, updateCourse, addCoursePptFile, getCoursePptFiles, deleteCoursePptFile } from '../../services/firestoreService';
 import { uploadFile } from '../../services/storageService';
 import { toast } from 'react-toastify';
 import { 
   Plus, X, ChevronDown, ChevronUp, Upload, FileText, 
-  Film, FileCheck, Brain, Save, ArrowLeft 
+  Film, FileCheck, Brain, Save, ArrowLeft, Youtube, Presentation 
 } from 'lucide-react';
 
 const CourseContent = () => {
@@ -16,6 +16,8 @@ const CourseContent = () => {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [expandedChapter, setExpandedChapter] = useState(null);
+  const [coursePptFiles, setCoursePptFiles] = useState([]);
+  const [uploadingPpt, setUploadingPpt] = useState(false);
   
   const [chapters, setChapters] = useState([
     {
@@ -31,6 +33,7 @@ const CourseContent = () => {
           content: '',
           videoUrl: '',
           documentUrl: '',
+          youtubeUrl: '',
           duration: '',
           order: 1,
         }
@@ -57,14 +60,22 @@ const CourseContent = () => {
     try {
       const data = await getCourse(courseId);
       setCourse(data);
-      
+
+      // Load course-level PPT files from dedicated Firestore collection
+      const pptFiles = await getCoursePptFiles(courseId);
+      setCoursePptFiles(pptFiles);
+
       // Load existing chapters if available
       if (data.chapters && data.chapters.length > 0) {
         // Normalize chapters to ensure all required fields exist
         const normalizedChapters = data.chapters.map(ch => ({
           ...ch,
           quiz: ch.quiz || { enabled: false, questions: [] },
-          assignment: ch.assignment || { enabled: false, title: '', description: '', dueInDays: 7, maxScore: 100 }
+          assignment: ch.assignment || { enabled: false, title: '', description: '', dueInDays: 7, maxScore: 100 },
+          lessons: (ch.lessons || []).map(l => ({
+            ...l,
+            youtubeUrl: l.youtubeUrl || '',
+          }))
         }));
         setChapters(normalizedChapters);
       }
@@ -141,6 +152,7 @@ const CourseContent = () => {
             content: '',
             videoUrl: '',
             documentUrl: '',
+            youtubeUrl: '',
             duration: '',
             order: ch.lessons.length + 1,
           }]
@@ -176,17 +188,52 @@ const CourseContent = () => {
     }));
   };
 
-  // File upload handler
+  // Lesson file upload handler (video / document)
   const handleFileUpload = async (chapterId, lessonId, file, type) => {
     try {
       toast.info('Uploading file...');
       const url = await uploadFile(file, `courses/${courseId}/${type}s`);
-      
       const field = type === 'video' ? 'videoUrl' : 'documentUrl';
       updateLesson(chapterId, lessonId, field, url);
       toast.success('File uploaded successfully!');
     } catch (error) {
       toast.error('Failed to upload file');
+    }
+  };
+
+  // Course-level PPT/PDF upload — stored as base64 in Firestore (max ~700 KB)
+  const MAX_PPT_SIZE = 700 * 1024; // 700 KB → ~933 KB after base64, safely under 1 MB Firestore limit
+
+  const handleCoursePptUpload = async (file) => {
+    if (file.size > MAX_PPT_SIZE) {
+      toast.error(`File too large (${(file.size / 1024).toFixed(0)} KB). Maximum allowed size is 700 KB.`);
+      return;
+    }
+    try {
+      setUploadingPpt(true);
+      toast.info('Uploading file...');
+      const base64 = await new Promise((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = () => resolve(reader.result.split(',')[1]);
+        reader.onerror = reject;
+        reader.readAsDataURL(file);
+      });
+      const fileId = await addCoursePptFile(courseId, file.name, file.type, base64, file.size);
+      setCoursePptFiles(prev => [...prev, { id: fileId, name: file.name, fileType: file.type, sizeBytes: file.size, data: base64 }]);
+      toast.success('File uploaded successfully!');
+    } catch (error) {
+      toast.error('Failed to upload file');
+    } finally {
+      setUploadingPpt(false);
+    }
+  };
+
+  const removeCoursePptFile = async (fileId) => {
+    try {
+      await deleteCoursePptFile(fileId);
+      setCoursePptFiles(prev => prev.filter(f => f.id !== fileId));
+    } catch (error) {
+      toast.error('Failed to remove file');
     }
   };
 
@@ -330,6 +377,56 @@ const CourseContent = () => {
           </button>
         </div>
 
+        {/* Course-level PPT / PDF Materials */}
+        <div className="bg-white/5 backdrop-blur-lg border border-white/10 rounded-2xl p-6">
+          <div className="flex items-center justify-between mb-4">
+            <h2 className="text-lg font-semibold text-white flex items-center gap-2">
+              <FileText size={20} className="text-orange-400" />
+              Course Materials (PPT / PDF)
+            </h2>
+            <label className={`flex items-center gap-2 px-4 py-2 rounded-lg cursor-pointer transition-colors text-sm font-medium ${
+              uploadingPpt
+                ? 'bg-orange-500/10 text-orange-400 cursor-not-allowed'
+                : 'bg-orange-500/20 hover:bg-orange-500/30 text-orange-300'
+            }`}>
+              <Upload size={16} />
+              {uploadingPpt ? 'Uploading...' : 'Upload PPT / PDF'}
+              <input
+                type="file"
+                accept=".ppt,.pptx,.pdf"
+                disabled={uploadingPpt}
+                onChange={(e) => e.target.files[0] && handleCoursePptUpload(e.target.files[0])}
+                className="hidden"
+              />
+            </label>
+          </div>
+          {coursePptFiles.length === 0 ? (
+            <p className="text-gray-500 text-sm">No files uploaded yet. Upload PPT or PDF files that apply to this entire course.</p>
+          ) : (
+            <div className="space-y-2">
+              {coursePptFiles.map((file) => (
+                <div key={file.id} className="flex items-center gap-3 bg-white/5 border border-white/10 rounded-lg px-4 py-3">
+                  <FileText size={16} className="text-orange-400 flex-shrink-0" />
+                  <a
+                    href={`data:${file.fileType};base64,${file.data}`}
+                    download={file.name}
+                    className="flex-1 text-sm text-white hover:text-orange-300 transition-colors truncate"
+                  >
+                    {file.name}
+                  </a>
+                  <button
+                    onClick={() => removeCoursePptFile(file.id)}
+                    className="p-1.5 hover:bg-red-500/20 text-red-400 rounded-lg transition-colors flex-shrink-0"
+                    title="Remove"
+                  >
+                    <X size={14} />
+                  </button>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+
         {/* Chapters */}
         <div className="space-y-4">
           {chapters.map((chapter, chapterIndex) => (
@@ -461,6 +558,18 @@ const CourseContent = () => {
                                   rows={4}
                                 />
                               )}
+
+                              {/* YouTube URL — per lesson */}
+                              <div className="flex items-center gap-2 pt-2 border-t border-white/10">
+                                <Youtube size={16} className="text-red-400 flex-shrink-0" />
+                                <input
+                                  type="url"
+                                  value={lesson.youtubeUrl || ''}
+                                  onChange={(e) => updateLesson(chapter.id, lesson.id, 'youtubeUrl', e.target.value)}
+                                  className="flex-1 px-3 py-2 rounded-lg bg-white/5 border border-white/10 text-white placeholder-gray-400 focus:ring-2 focus:ring-red-500 outline-none text-sm"
+                                  placeholder="YouTube video URL (e.g. https://youtu.be/...)"
+                                />
+                              </div>
 
                               <input
                                 type="text"

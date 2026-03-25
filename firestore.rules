@@ -120,5 +120,13 @@ service cloud.firestore {
       allow read: if isSignedIn();
       allow write: if isSignedIn();
     }
+    
+    // Course PPT/PDF files collection
+    match /courseFiles/{fileId} {
+      allow read: if isSignedIn();
+      allow create: if isAdmin();
+      allow delete: if isAdmin();
+      allow update: if isAdmin();
+    }
   }
 }
