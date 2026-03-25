@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useRef, useCallback } from 'react';
 import { useParams } from 'react-router-dom';
 import StudentLayout from '../../components/Layout/StudentLayout';
 import StudentNotes from '../../components/StudentNotes';
@@ -12,7 +12,8 @@ import {
   awardPoints,
   updateStreak,
   awardBadge,
-  saveQuizResult
+  saveQuizResult,
+  getCoursePptFiles
 } from '../../services/firestoreService';
 import { generateAdaptiveQuiz } from '../../services/geminiService';
 import { useAuthStore, useBuddyStore } from '../../store';
@@ -21,7 +22,7 @@ import {
   BookOpen, CheckCircle, Lock, Play, ChevronLeft, ChevronRight,
   Clock, Brain, FileText, Target, TrendingUp, Award, MessageCircle,
   Download, ExternalLink, Video, File, Lightbulb, ArrowRight,
-  List, X, Menu
+  List, X, Menu, Youtube, Minus
 } from 'lucide-react';
 
 // Inline markdown renderer — converts **bold**, *italic*, `code` to JSX
@@ -418,6 +419,119 @@ const PresentationRenderer = ({ content }) => {
   );
 };
 
+// Load the YouTube IFrame API script once
+const ensureYouTubeAPI = () => {
+  if (window.YT?.Player || document.getElementById('yt-api-script')) return;
+  const tag = document.createElement('script');
+  tag.id = 'yt-api-script';
+  tag.src = 'https://www.youtube.com/iframe_api';
+  document.head.appendChild(tag);
+};
+
+const extractVideoId = (rawUrl) => {
+  try {
+    const u = new URL(rawUrl);
+    return u.searchParams.get('v') || u.pathname.replace(/^\/(shorts\/)?/, '').split('/')[0];
+  } catch {
+    return null;
+  }
+};
+
+// Floating YouTube Video Player — saves watch position to localStorage
+const FloatingVideoPlayer = ({ url, title, lessonId, userId, onClose }) => {
+  const [minimised, setMinimised] = useState(false);
+  const divRef = useRef(null);
+  const playerRef = useRef(null);
+  const saveTimerRef = useRef(null);
+  const storageKey = `vp_${userId}_${lessonId}`;
+
+  const getSavedTime = () => {
+    try { return parseInt(localStorage.getItem(storageKey) || '0', 10); } catch { return 0; }
+  };
+
+  const saveCurrentTime = useCallback(() => {
+    try {
+      if (playerRef.current?.getCurrentTime) {
+        localStorage.setItem(storageKey, String(Math.floor(playerRef.current.getCurrentTime())));
+      }
+    } catch { /* ignore */ }
+  }, [storageKey]);
+
+  const initPlayer = useCallback(() => {
+    if (!divRef.current || !window.YT?.Player) return;
+    const videoId = extractVideoId(url);
+    if (!videoId) return;
+    playerRef.current = new window.YT.Player(divRef.current, {
+      videoId,
+      playerVars: { autoplay: 1, start: getSavedTime(), rel: 0 },
+      events: {
+        onStateChange: ({ data }) => {
+          clearInterval(saveTimerRef.current);
+          if (data === window.YT.PlayerState.PLAYING) {
+            saveTimerRef.current = setInterval(saveCurrentTime, 5000);
+          } else {
+            saveCurrentTime();
+          }
+        },
+      },
+    });
+  }, [url, saveCurrentTime]);
+
+  useEffect(() => {
+    ensureYouTubeAPI();
+    if (window.YT?.Player) {
+      initPlayer();
+    } else {
+      const prev = window.onYouTubeIframeAPIReady;
+      window.onYouTubeIframeAPIReady = () => {
+        prev?.();
+        initPlayer();
+      };
+    }
+    return () => {
+      clearInterval(saveTimerRef.current);
+      saveCurrentTime();
+      playerRef.current?.destroy?.();
+    };
+  }, [initPlayer, saveCurrentTime]);
+
+  return (
+    <div
+      className={`fixed z-50 shadow-2xl rounded-2xl overflow-hidden border border-white/20 bg-[#0d1117] transition-all duration-300 ${
+        minimised
+          ? 'bottom-4 right-4 w-64 h-12'
+          : 'bottom-4 right-4 w-80 sm:w-[480px]'
+      }`}
+      style={{ boxShadow: '0 0 40px rgba(0,0,0,0.7)' }}
+    >
+      {/* Title bar */}
+      <div className="flex items-center gap-2 px-3 py-2.5 bg-white/5 border-b border-white/10">
+        <Youtube size={16} className="text-red-400 flex-shrink-0" />
+        <span className="flex-1 text-xs text-white font-medium truncate">{title || 'Video'}</span>
+        <button
+          onClick={() => setMinimised(m => !m)}
+          className="p-1 rounded hover:bg-white/10 text-gray-400 hover:text-white transition-colors"
+          title={minimised ? 'Restore' : 'Minimise'}
+        >
+          <Minus size={14} />
+        </button>
+        <button
+          onClick={() => { saveCurrentTime(); onClose(); }}
+          className="p-1 rounded hover:bg-white/10 text-gray-400 hover:text-white transition-colors"
+          title="Close"
+        >
+          <X size={14} />
+        </button>
+      </div>
+
+      {/* Player container — always mounted so video keeps running when minimised */}
+      <div className={minimised ? 'hidden' : 'aspect-video'}>
+        <div ref={divRef} className="w-full h-full" />
+      </div>
+    </div>
+  );
+};
+
 const EnhancedCourseRoom = () => {
   const { enrollmentId } = useParams();
   const { user } = useAuthStore();
@@ -434,8 +548,10 @@ const EnhancedCourseRoom = () => {
   const [quizAnswers, setQuizAnswers] = useState({});
   const [loading, setLoading] = useState(true);
   const [quizLoading, setQuizLoading] = useState(false);
-  const [activeTab, setActiveTab] = useState('content'); // content, notes, todo, gamification
+  const [activeTab, setActiveTab] = useState('content'); // content, notes, todo, gamification, resources
   const [showChapterDrawer, setShowChapterDrawer] = useState(false);
+  const [pptFiles, setPptFiles] = useState([]);
+  const [videoPlayer, setVideoPlayer] = useState(null); // { url, title } | null
 
   useEffect(() => {
     loadCourseData();
@@ -448,6 +564,10 @@ const EnhancedCourseRoom = () => {
 
       const courseData = await getCourse(enrollmentData.courseId);
       setCourse(courseData);
+
+      // Load course PPT/PDF resources
+      const files = await getCoursePptFiles(enrollmentData.courseId);
+      setPptFiles(files);
 
       // Load chapters from course content
       if (courseData.chapters && courseData.chapters.length > 0) {
@@ -679,10 +799,11 @@ const EnhancedCourseRoom = () => {
             {/* Tab Navigation */}
             <div className="bg-white/5 backdrop-blur-lg border border-white/10 rounded-xl p-1.5 flex gap-1">
               {[
-                { id: 'content',       icon: BookOpen, label: 'Content'  },
-                { id: 'notes',         icon: FileText,  label: 'Notes'    },
-                { id: 'todo',          icon: Target,    label: 'Tasks'    },
-                { id: 'gamification',  icon: Award,     label: 'Progress' },
+                { id: 'content',       icon: BookOpen, label: 'Content'   },
+                { id: 'notes',         icon: FileText,  label: 'Notes'     },
+                { id: 'todo',          icon: Target,    label: 'Tasks'     },
+                { id: 'gamification',  icon: Award,     label: 'Progress'  },
+                { id: 'resources',     icon: Download,  label: 'Resources' },
               ].map(({ id, icon: Icon, label }) => (
                 <button
                   key={id}
@@ -720,12 +841,23 @@ const EnhancedCourseRoom = () => {
                   
                   <h2 className="text-xl sm:text-3xl font-bold text-white mb-2">{currentLesson?.title}</h2>
                   
-                  {/* Lesson Type Badge */}
-                  <div className="flex items-center gap-1.5 text-gray-400 text-xs sm:text-sm">
-                    {currentLesson?.type === 'video' && <Video size={14} />}
-                    {currentLesson?.type === 'document' && <File size={14} />}
-                    {currentLesson?.type === 'article' && <FileText size={14} />}
-                    <span className="capitalize">{currentLesson?.type} Lesson</span>
+                  {/* Lesson Type Badge + Watch Video button */}
+                  <div className="flex items-center gap-3">
+                    <div className="flex items-center gap-1.5 text-gray-400 text-xs sm:text-sm">
+                      {currentLesson?.type === 'video' && <Video size={14} />}
+                      {currentLesson?.type === 'document' && <File size={14} />}
+                      {currentLesson?.type === 'article' && <FileText size={14} />}
+                      <span className="capitalize">{currentLesson?.type} Lesson</span>
+                    </div>
+                    {currentLesson?.youtubeUrl && (
+                      <button
+                        onClick={() => setVideoPlayer({ url: currentLesson.youtubeUrl, title: currentLesson.title, lessonId: currentLesson.id })}
+                        className="flex items-center gap-1.5 px-3 py-1.5 bg-red-500/20 hover:bg-red-500/30 text-red-300 rounded-lg text-xs font-medium transition-colors border border-red-500/30"
+                      >
+                        <Youtube size={14} />
+                        Watch Video
+                      </button>
+                    )}
                   </div>
                 </div>
 
@@ -894,6 +1026,47 @@ const EnhancedCourseRoom = () => {
             {activeTab === 'gamification' && (
               <Gamification courseId={course.id} enrollmentId={enrollmentId} />
             )}
+
+            {/* Resources Tab */}
+            {activeTab === 'resources' && (
+              <div className="bg-white/5 backdrop-blur-lg border border-white/10 rounded-xl sm:rounded-2xl p-4 sm:p-6">
+                <h2 className="text-lg font-semibold text-white mb-4 flex items-center gap-2">
+                  <Download size={20} className="text-orange-400" />
+                  Course Materials
+                </h2>
+                {pptFiles.length === 0 ? (
+                  <p className="text-gray-400 text-sm">No resources have been uploaded for this course yet.</p>
+                ) : (
+                  <div className="space-y-3">
+                    {pptFiles.map((file) => (
+                      <div key={file.id} className="flex items-center gap-3 bg-white/5 border border-white/10 rounded-lg px-4 py-3">
+                        <FileText size={18} className="text-orange-400 flex-shrink-0" />
+                        <span className="flex-1 text-sm text-white truncate">{file.name}</span>
+                        <a
+                          href={`data:${file.fileType};base64,${file.data}`}
+                          download={file.name}
+                          className="flex items-center gap-1.5 px-3 py-1.5 bg-orange-500/20 hover:bg-orange-500/30 text-orange-300 rounded-lg text-xs font-medium transition-colors flex-shrink-0"
+                        >
+                          <Download size={14} />
+                          Download
+                        </a>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )}
+
+      {/* Floating Video Player */}
+      {videoPlayer && (
+        <FloatingVideoPlayer
+          url={videoPlayer.url}
+          title={videoPlayer.title}
+          lessonId={videoPlayer.lessonId}
+          userId={user?.uid}
+          onClose={() => setVideoPlayer(null)}
+        />
+      )}
           </div>
 
           {/* Sidebar — desktop only; mobile uses bottom drawer */}
