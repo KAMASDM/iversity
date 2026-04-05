@@ -103,50 +103,58 @@ const CourseCard = ({ course }) => {
 
   return (
     <div className={`group relative flex flex-col bg-[#0d1117] border border-white/6 ${meta.border} rounded-2xl overflow-hidden transition-all duration-300 hover:scale-[1.02] hover:shadow-2xl ${meta.glow}`}>
-      <div className={`h-[3px] w-full bg-gradient-to-r ${meta.topBar}`} />
-      <div className="flex flex-col flex-1 p-5">
-        <div className="flex items-start justify-between gap-3 mb-3">
+      <div className={`h-1 w-full bg-gradient-to-r ${meta.topBar}`} />
+      <div className="flex flex-col flex-1 p-6">
+        <div className="flex items-start justify-between gap-3 mb-4">
           <div className="flex items-center gap-2">
-            <div className="p-1.5 rounded-lg bg-white/5">
-              <CatIcon size={13} className={iconTextClass} />
+            <div className="p-2 rounded-lg bg-white/5">
+              <CatIcon size={15} className={iconTextClass} />
             </div>
-            <span className={`px-2.5 py-0.5 text-[10px] font-bold rounded-full border tracking-wide uppercase ${meta.badge}`}>
+            <span className={`px-3 py-1 text-xs font-bold rounded-full border tracking-wide uppercase ${meta.badge}`}>
               {course.category === 'AI & Machine Learning' ? 'AI & ML' : 'Professionals'}
             </span>
           </div>
-          <span className={`px-2.5 py-0.5 text-[10px] font-semibold rounded-full border flex-shrink-0 ${lvl.color}`}>
+          <span className={`px-3 py-1 text-xs font-semibold rounded-full border flex-shrink-0 ${lvl.color}`}>
             {lvl.label}
           </span>
         </div>
-        <h3 className="text-sm font-bold text-white mb-2 leading-snug group-hover:text-blue-300 transition-colors line-clamp-2">
+        <h3 className="text-base font-bold text-white mb-2.5 leading-snug group-hover:text-blue-300 transition-colors line-clamp-2">
           {course.title}
         </h3>
-        <p className="text-gray-500 text-xs leading-relaxed mb-4 flex-1 line-clamp-3">
+        <p className="text-gray-400 text-sm leading-relaxed mb-5 flex-1 line-clamp-3">
           {course.description}
         </p>
-        <div className="flex items-center gap-3 text-[11px] text-gray-600 mb-4 pt-3 border-t border-white/5">
-          <span className="flex items-center gap-1">
-            <BookOpen size={11} className="text-blue-500" />
+        <div className="flex items-center gap-4 text-xs text-gray-500 mb-5 pt-4 border-t border-white/5">
+          <span className="flex items-center gap-1.5">
+            <BookOpen size={13} className="text-blue-500" />
             {chapterCount} chapters
           </span>
-          <span className="flex items-center gap-1">
-            <BarChart2 size={11} className="text-violet-500" />
+          <span className="flex items-center gap-1.5">
+            <BarChart2 size={13} className="text-violet-500" />
             {lessonCount} lessons
           </span>
           {course.duration && (
-            <span className="flex items-center gap-1">
-              <Clock size={11} className="text-amber-500" />
+            <span className="flex items-center gap-1.5">
+              <Clock size={13} className="text-amber-500" />
               {course.duration}w
             </span>
           )}
         </div>
-        <Link
-          to="/register"
-          className={`flex items-center justify-center gap-1.5 w-full py-2 bg-white/5 border border-white/10 ${meta.btnHover} text-white font-semibold rounded-xl transition-all duration-200 text-xs group/btn`}
-        >
-          Enroll Free
-          <ArrowRight size={12} className="group-hover/btn:translate-x-1 transition-transform" />
-        </Link>
+        <div className="flex gap-2.5">
+          <Link
+            to={`/courses/${course.id}`}
+            className="flex items-center justify-center gap-1.5 flex-1 py-2.5 bg-white/5 border border-white/10 hover:bg-white/10 hover:border-white/20 text-gray-300 hover:text-white font-semibold rounded-xl transition-all duration-200 text-sm"
+          >
+            View Details
+          </Link>
+          <Link
+            to={`/register?course=${course.id}`}
+            className={`flex items-center justify-center gap-1.5 flex-1 py-2.5 bg-white/5 border border-white/10 ${meta.btnHover} text-white font-semibold rounded-xl transition-all duration-200 text-sm group/btn`}
+          >
+            Enroll
+            <ArrowRight size={13} className="group-hover/btn:translate-x-0.5 transition-transform" />
+          </Link>
+        </div>
       </div>
     </div>
   );
@@ -425,7 +433,7 @@ const Landing = () => {
 
           {/* Loading skeletons */}
           {coursesLoading && (
-            <div className="grid md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-5">
+            <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-6">
               {[...Array(8)].map((_, i) => (
                 <div key={i} className="bg-[#0d1117] border border-white/6 rounded-2xl overflow-hidden animate-pulse">
                   <div className="h-[3px] bg-white/10" />
@@ -468,7 +476,7 @@ const Landing = () => {
                         View all <ChevronRight size={12} />
                       </button>
                     </div>
-                    <div className="grid md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-5">
+                    <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-6">
                       {catCourses.map(course => (
                         <CourseCard key={course.id} course={course} />
                       ))}
@@ -481,7 +489,7 @@ const Landing = () => {
 
           {/* Filtered courses */}
           {!coursesLoading && courses.length > 0 && activeCategory !== 'all' && (
-            <div className="grid md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-5">
+            <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-6">
               {filteredCourses.map(course => (
                 <CourseCard key={course.id} course={course} />
               ))}

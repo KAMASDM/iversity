@@ -27,6 +27,9 @@ import StudentManagement from './pages/Admin/StudentManagement';
 import AddPromptEngineeringCourse from './pages/Admin/AddPromptEngineeringCourse';
 import AddAllCourses from './pages/Admin/AddAllCourses';
 
+// Public Pages
+import CoursePreview from './pages/Public/CoursePreview';
+
 // Student Pages
 import StudentDashboard from './pages/Student/Dashboard';
 import BrowseCourses from './pages/Student/BrowseCourses';
@@ -93,6 +96,7 @@ function App() {
               </PublicRoute>
             }
           />
+          <Route path="/courses/:courseId" element={<CoursePreview />} />
 
           {/* Admin Routes */}
           <Route

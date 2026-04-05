@@ -15,6 +15,9 @@ import { aiForEducatorsCourse } from '../../seedData/aiForEducatorsCourse';
 import { aiForFashionCourse } from '../../seedData/aiForFashionCourse';
 import { aiForHealthcareCourse } from '../../seedData/aiForHealthcareCourse';
 import { aiForLegalCourse } from '../../seedData/aiForLegalCourse';
+import { aiForBusinessLeadersCourse } from '../../seedData/aiForBusinessLeadersCourse';
+import { genAIForContentCreatorsCourse } from '../../seedData/genAIForContentCreatorsCourse';
+import { aiForHRCourse } from '../../seedData/aiForHRCourse';
 
 const allCourses = [
   aiFoundationCourse,
@@ -27,6 +30,9 @@ const allCourses = [
   aiForFashionCourse,
   aiForHealthcareCourse,
   aiForLegalCourse,
+  aiForBusinessLeadersCourse,
+  genAIForContentCreatorsCourse,
+  aiForHRCourse,
 ];
 
 const AddAllCourses = () => {

@@ -6,6 +6,7 @@ import { promptEngineeringCourse } from './promptEngineeringCourse.js';
 import { aiApiAppsCourse } from './aiApiAppsCourse.js';
 import { ragVectorDbCourse } from './ragVectorDbCourse.js';
 import { langchainAgentsCourse } from './langchainAgentsCourse.js';
+import { aiForHRCourse } from './aiForHRCourse.js';
 
 const serviceAccount = JSON.parse(readFileSync('./serviceAccountKey.json', 'utf8'));
 
@@ -21,6 +22,8 @@ const courses = [
   aiApiAppsCourse,
   ragVectorDbCourse,
   langchainAgentsCourse,
+  aiForBusinessLeadersCourse,
+  aiForHRCourse,
 ];
 
 async function courseExists(title) {
