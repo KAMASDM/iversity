@@ -1,10 +1,10 @@
 import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import AdminLayout from '../../components/Layout/AdminLayout';
-import { createCourse } from '../../services/firestoreService';
+import { createCourse, updateCourse, deleteCourse, getAllCourses } from '../../services/firestoreService';
 import { useAuthStore } from '../../store';
 import { toast } from 'react-toastify';
-import { Sparkles, CheckCircle, Clock, AlertCircle } from 'lucide-react';
+import { Sparkles, CheckCircle, Clock, AlertCircle, RefreshCw } from 'lucide-react';
 import { aiFoundationCourse } from '../../seedData/aiFoundationCourse';
 import { promptEngineeringCourse } from '../../seedData/promptEngineeringCourse';
 import { aiApiAppsCourse } from '../../seedData/aiApiAppsCourse';
@@ -42,6 +42,8 @@ const AddAllCourses = () => {
   const [results, setResults] = useState([]);
   const [done, setDone] = useState(false);
   const [selected, setSelected] = useState(() => new Set(allCourses.map(c => c.title)));
+  // 'add' = create new | 'update' = find-by-title and replace (also deletes duplicates)
+  const [mode, setMode] = useState('add');
 
   const toggleCourse = (title) => {
     if (loading || done) return;
@@ -89,18 +91,116 @@ const AddAllCourses = () => {
     }
   };
 
+  // Find all Firestore docs matching a title; update the first, delete the rest.
+  const handleUpdateSelected = async () => {
+    if (selectedCourses.length === 0) {
+      toast.warning('Select at least one course to update.');
+      return;
+    }
+    setLoading(true);
+    setResults([]);
+
+    let existingCourses;
+    try {
+      existingCourses = await getAllCourses();
+    } catch (err) {
+      toast.error('Failed to fetch existing courses from Firestore.');
+      setLoading(false);
+      return;
+    }
+
+    const newResults = [];
+
+    for (const course of selectedCourses) {
+      const matches = existingCourses.filter(c => c.title === course.title);
+
+      if (matches.length === 0) {
+        // Not found — create instead
+        try {
+          const courseId = await createCourse(course, user.uid);
+          newResults.push({ title: course.title, status: 'success', id: courseId, note: 'Created (not found)' });
+        } catch (err) {
+          newResults.push({ title: course.title, status: 'error', error: err.message });
+        }
+      } else {
+        // Update the first match with the new seed data
+        const [primary, ...duplicates] = matches;
+        try {
+          await updateCourse(primary.id, {
+            ...course,
+            createdBy: primary.createdBy ?? user.uid,
+          });
+          // Delete any duplicate documents with the same title
+          for (const dup of duplicates) {
+            await deleteCourse(dup.id);
+          }
+          newResults.push({
+            title: course.title,
+            status: 'success',
+            id: primary.id,
+            note: duplicates.length > 0 ? `Updated + removed ${duplicates.length} duplicate(s)` : 'Updated',
+          });
+        } catch (err) {
+          newResults.push({ title: course.title, status: 'error', error: err.message });
+        }
+      }
+      setResults([...newResults]);
+    }
+
+    setLoading(false);
+    setDone(true);
+    const successCount = newResults.filter(r => r.status === 'success').length;
+    if (successCount === selectedCourses.length) {
+      toast.success(`${successCount} course${successCount !== 1 ? 's' : ''} updated successfully!`);
+    } else {
+      toast.warning(`${successCount}/${selectedCourses.length} courses updated. Check results.`);
+    }
+  };
+
   return (
     <AdminLayout>
       <div className="max-w-4xl mx-auto">
         <div className="bg-gradient-to-r from-purple-600 to-blue-600 rounded-2xl p-8 text-white mb-8">
           <div className="flex items-center gap-3 mb-4">
             <Sparkles size={32} />
-            <h1 className="text-3xl font-bold">Add Courses</h1>
+            <h1 className="text-3xl font-bold">Add / Update Courses</h1>
           </div>
           <p className="text-blue-100">
-            Select the courses you want to add to the platform, then click Add Selected Courses.
+            Select courses below, then choose <strong>Add</strong> to create new entries or <strong>Update</strong> to replace existing content (and remove duplicates).
           </p>
         </div>
+
+        {/* Mode toggle */}
+        <div className="flex gap-3 mb-6">
+          <button
+            onClick={() => { setMode('add'); setDone(false); setResults([]); }}
+            disabled={loading}
+            className={`flex-1 py-3 rounded-lg font-semibold transition-all ${
+              mode === 'add'
+                ? 'bg-blue-600 text-white shadow-lg shadow-blue-600/30'
+                : 'bg-white/5 text-white/50 hover:bg-white/10 hover:text-white'
+            }`}
+          >
+            ➕ Add New
+          </button>
+          <button
+            onClick={() => { setMode('update'); setDone(false); setResults([]); }}
+            disabled={loading}
+            className={`flex-1 py-3 rounded-lg font-semibold transition-all ${
+              mode === 'update'
+                ? 'bg-amber-500 text-white shadow-lg shadow-amber-500/30'
+                : 'bg-white/5 text-white/50 hover:bg-white/10 hover:text-white'
+            }`}
+          >
+            <span className="flex items-center justify-center gap-2"><RefreshCw size={15} /> Update Existing</span>
+          </button>
+        </div>
+
+        {mode === 'update' && (
+          <div className="mb-6 px-4 py-3 rounded-lg bg-amber-500/10 border border-amber-500/30 text-amber-200 text-sm">
+            <strong>Update mode:</strong> Finds each selected course in Firestore by its title, replaces its content with the current seed data, and deletes any duplicate documents with the same title.
+          </div>
+        )}
 
         <div className="bg-white/5 backdrop-blur-lg border border-white/10 rounded-2xl p-8 mb-6">
           <div className="flex items-center justify-between mb-4">
@@ -161,7 +261,9 @@ const AddAllCourses = () => {
                     <span className="text-red-400 text-xs">{result.error}</span>
                   )}
                   {result?.status === 'success' && (
-                    <span className="text-green-400 text-xs font-mono">{result.id}</span>
+                    <span className="text-green-400 text-xs font-mono">
+                      {result.note ? result.note : result.id}
+                    </span>
                   )}
                 </div>
               );
@@ -171,14 +273,20 @@ const AddAllCourses = () => {
 
         <div className="flex gap-4">
           <button
-            onClick={handleAddSelected}
+            onClick={mode === 'update' ? handleUpdateSelected : handleAddSelected}
             disabled={loading || done || selected.size === 0}
-            className="flex-1 py-4 bg-gradient-to-r from-blue-600 to-purple-600 text-white font-semibold rounded-lg hover:scale-105 transition-transform disabled:opacity-50 disabled:hover:scale-100"
+            className={`flex-1 py-4 text-white font-semibold rounded-lg hover:scale-105 transition-transform disabled:opacity-50 disabled:hover:scale-100 ${
+              mode === 'update'
+                ? 'bg-gradient-to-r from-amber-500 to-orange-500'
+                : 'bg-gradient-to-r from-blue-600 to-purple-600'
+            }`}
           >
             {loading
-              ? `Adding courses… (${results.length}/${selectedCourses.length})`
+              ? `${mode === 'update' ? 'Updating' : 'Adding'} courses… (${results.length}/${selectedCourses.length})`
               : done
               ? '✅ Done'
+              : mode === 'update'
+              ? `Update ${selected.size} Selected Course${selected.size !== 1 ? 's' : ''}`
               : `Add ${selected.size} Selected Course${selected.size !== 1 ? 's' : ''}`}
           </button>
           <button
