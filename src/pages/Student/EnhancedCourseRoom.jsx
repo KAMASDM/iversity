@@ -535,7 +535,7 @@ const FloatingVideoPlayer = ({ url, title, lessonId, userId, onClose }) => {
 const EnhancedCourseRoom = () => {
   const { enrollmentId } = useParams();
   const { user } = useAuthStore();
-  const { toggleBuddy } = useBuddyStore();
+  const { toggleBuddy, setCourseContext } = useBuddyStore();
   
   const [enrollment, setEnrollment] = useState(null);
   const [course, setCourse] = useState(null);
@@ -594,6 +594,21 @@ const EnhancedCourseRoom = () => {
   const totalLessons = chapters.reduce((sum, ch) => sum + (ch.lessons?.length || 0), 0);
   const completedLessons = enrollment?.completedLessons?.length || 0;
   const progressPercentage = totalLessons > 0 ? (completedLessons / totalLessons) * 100 : 0;
+
+  // Keep Buddy in sync with whatever lesson the student is currently viewing
+  useEffect(() => {
+    if (course && currentChapter && currentLesson) {
+      setCourseContext({
+        courseName: course.title,
+        currentChapter: currentChapter.title,
+        currentLesson: currentLesson.title,
+        currentLessonContent: currentLesson.content
+          ? currentLesson.content.slice(0, 1200)
+          : null,
+        progressPercentage: Math.round(progressPercentage),
+      });
+    }
+  }, [course, currentChapterIndex, currentLessonIndex]);
 
   const markLessonComplete = async () => {
     try {

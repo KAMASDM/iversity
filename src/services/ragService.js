@@ -69,7 +69,20 @@ const SITE_KNOWLEDGE = [
     id: 'faq-courses-available',
     type: 'faq',
     source: 'Available Courses',
-    text: `iVersity currently offers 5 courses: (1) "AI & LLMs: A Beginner's Foundation" — beginner level, 4 weeks. (2) "Mastering Prompt Engineering" — intermediate, 8 weeks. (3) "Building AI-Powered Applications with APIs" — intermediate, 6 weeks. (4) "Retrieval-Augmented Generation (RAG) & Vector Databases" — intermediate, 5 weeks. (5) "LangChain & Agents: Orchestrating AI Workflows" — intermediate, 6 weeks. All courses are in the AI & Machine Learning category.`,
+    text: `iVersity currently offers 13 courses across AI, Machine Learning, and Professional AI Applications:
+(1) "AI & LLMs: A Beginner's Foundation" — beginner, covers what AI is, how LLMs work, tokens, embeddings, and practical applications.
+(2) "Mastering Prompt Engineering" — intermediate, covers zero-shot, few-shot, chain-of-thought prompting, and advanced techniques.
+(3) "Building AI-Powered Applications with APIs" — intermediate, covers OpenAI API, function calling, streaming, prompt pipelines, and deploying AI apps.
+(4) "Retrieval-Augmented Generation (RAG) & Vector Databases" — intermediate, covers RAG architecture, vector embeddings, and semantic search.
+(5) "LangChain & Agents: Orchestrating AI Workflows" — intermediate, covers LangChain chains, agents, tools, and memory.
+(6) "AI for Business Leaders & Executives" — covers AI strategy, ROI, ethical AI governance, and leading AI transformation.
+(7) "AI for Teachers & Educators: Teach Smarter, Not Harder" — covers using AI for lesson planning, student feedback, content creation, and classroom management.
+(8) "AI for Marketers: From Strategy to Execution" — covers AI-powered SEO, content generation, campaign automation, and market research.
+(9) "AI for Healthcare Professionals: Clinical AI in Practice" — covers clinical decision support, medical imaging AI, patient data, and healthcare ethics.
+(10) "AI for Human Resources & Talent Management" — covers AI recruiting, employee analytics, performance management, and HR chatbots.
+(11) "AI for Legal Professionals: From Research to Practice" — covers AI legal research, contract analysis, compliance, and document automation.
+(12) "AI for Fashion Designers: From Concept to Collection" — covers generative design, trend forecasting, customer personalization, and supply chain AI.
+(13) "Generative AI for Marketing & Content Creation" — covers image generation, copywriting, video scripts, and brand voice with AI.`,
   },
 ];
 

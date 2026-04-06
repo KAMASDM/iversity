@@ -75,6 +75,7 @@ export const useBuddyStore = create((set) => ({
   chatHistory: [],
   isOpen: false,
   loading: false,
+  courseContext: null, // { courseName, currentChapter, currentLesson, currentLessonContent, progressPercentage }
 
   setChatHistory: (history) => set({ chatHistory: history }),
   
@@ -85,6 +86,8 @@ export const useBuddyStore = create((set) => ({
   toggleBuddy: () => set((state) => ({ isOpen: !state.isOpen })),
   
   setLoading: (loading) => set({ loading }),
+
+  setCourseContext: (ctx) => set({ courseContext: ctx }),
 
   clearChat: () => set({ chatHistory: [] }),
 }));

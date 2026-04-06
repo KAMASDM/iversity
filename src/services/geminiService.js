@@ -1,4 +1,5 @@
 import { GoogleGenerativeAI } from '@google/generative-ai';
+import { retrieveContext } from './ragService.js';
 
 const API_KEY = import.meta.env.VITE_GEMINI_API_KEY;
 const genAI = new GoogleGenerativeAI(API_KEY);
@@ -163,7 +164,7 @@ Return in JSON format:
   }
 };
 
-// Virtual Buddy - RAG-powered AI Assistant for students
+// Virtual Buddy - RAG-powered AI Tutor for students
 export const getVirtualBuddyResponse = async (
   userMessage,
   conversationHistory,
@@ -171,41 +172,60 @@ export const getVirtualBuddyResponse = async (
   knowledgeChunks = []
 ) => {
   try {
-    const { retrieveContext } = await import('./ragService.js');
+    // Retrieve top relevant chunks — boost topK so we get richer context
+    const retrievedContext = retrieveContext(userMessage, knowledgeChunks, 8);
 
-    // Retrieve relevant context from the knowledge base
-    const retrievedContext = retrieveContext(userMessage, knowledgeChunks, 5);
+    const model = genAI.getGenerativeModel({
+      model: MODELS.BUDDY,
+      generationConfig: {
+        temperature: 0.85,
+        topP: 0.95,
+        maxOutputTokens: 600,
+      },
+    });
 
-    const model = genAI.getGenerativeModel({ model: MODELS.BUDDY });
-
+    // Last 8 turns for conversational memory
     const recentHistory = conversationHistory
-      .slice(-6)
+      .slice(-8)
       .map(msg => `${msg.role === 'user' ? 'Student' : 'Buddy'}: ${msg.content}`)
       .join('\n');
 
-    const prompt = `You are "Buddy", a friendly, knowledgeable AI learning assistant for iVersity — an AI-powered education platform. You help students understand course content, answer questions about the platform, and guide their learning journey.
+    // Build current-lesson block only when we have it
+    const lessonBlock = studentContext.currentLessonContent
+      ? `== CURRENT LESSON CONTENT (what the student is studying right now) ==\n${studentContext.currentLessonContent}\n`
+      : '';
 
-== RETRIEVED KNOWLEDGE (use this to answer accurately) ==
-${retrievedContext || 'No specific content retrieved — answer from general knowledge about AI education.'}
+    const prompt = `You are Buddy — a warm, sharp, and genuinely helpful AI tutor at iVersity, an AI education platform. You talk like a real human tutor who cares about the student, not like a chatbot reading from a manual.
 
-== STUDENT CONTEXT ==
-- Current course/module: ${studentContext.currentModule || 'Unknown'}
-- Overall progress: ${studentContext.progressPercentage || 0}%
-- Recent topics studied: ${studentContext.recentTopics?.join(', ') || 'None yet'}
+Your personality:
+- Conversational and natural — you use phrases like "Great question!", "So here's the thing...", "Think of it this way...", "Honestly, this trips a lot of people up at first"
+- You explain ideas using analogies and real-world examples, not just definitions
+- You encourage without being fake ("That's a solid way to think about it" not "Excellent!!!")
+- When a student is confused, you break things down patiently, one piece at a time
+- You never dump a wall of text — you keep answers focused and digestible
+- You use short paragraphs and line breaks naturally
+- You can be a little playful, but you stay focused on helping the student learn
+- You NEVER say "As an AI language model" or "I apologize" or sound robotic
 
-== RECENT CONVERSATION ==
-${recentHistory || '(Start of conversation)'}
+== COURSE KNOWLEDGE BASE (use this to ground your answers) ==
+${retrievedContext || 'No specific content retrieved. Use your general knowledge about AI and this platform.'}
 
-== STUDENT'S QUESTION ==
+${lessonBlock}== STUDENT CONTEXT ==
+- Course: ${studentContext.courseName || 'Not specified'}
+- Current chapter: ${studentContext.currentChapter || 'Not specified'}
+- Current lesson: ${studentContext.currentLesson || 'Not specified'}
+- Progress: ${studentContext.progressPercentage || 0}% through the course
+
+== CONVERSATION SO FAR ==
+${recentHistory || '(This is the start of the conversation)'}
+
+== STUDENT JUST ASKED ==
 ${userMessage}
 
-== INSTRUCTIONS ==
-- Answer ONLY based on the retrieved knowledge when available. If the knowledge base covers the question, use it directly.
-- If the question isn't covered by the knowledge base, answer from your general AI/ML knowledge.
-- Be concise, clear, and encouraging. Use plain text — no markdown symbols like **, ##, or bullet dashes that would look odd in a chat.
-- If the student asks about a specific lesson or concept, guide them through it step by step.
-- Keep responses to 2-4 short paragraphs maximum.
-- End with a helpful follow-up suggestion if appropriate.
+== YOUR JOB ==
+Reply as Buddy the tutor. Ground your answer in the course knowledge base when relevant. If the student is asking about something from their current lesson, connect your answer directly to that. If they ask something outside the course, still help them — you know a lot about AI.
+
+Keep your response to 3–5 natural paragraphs max. End with either a quick check-in question ("Does that make sense? Happy to dig deeper into any part of this!") or a nudge toward what to try next. Don't use markdown symbols like **, ##, or --- in your reply — plain conversational text only.
 
 Buddy:`;
 
@@ -215,8 +235,10 @@ Buddy:`;
 
     return text.trim();
   } catch (error) {
-    console.error('Error getting buddy response:', error);
-    throw new Error('Failed to get response from Virtual Buddy');
+    // Surface the real error so callers can log or fall back
+    const msg = error?.message || String(error);
+    console.error('[Buddy/Gemini] API call failed:', msg, error);
+    throw error;
   }
 };
 
