@@ -399,6 +399,39 @@ export const getAllCertificatesCount = async () => {
   }
 };
 
+// ============= USER OPERATIONS =============
+
+export const getAllUsers = async () => {
+  try {
+    const q = query(
+      collection(db, 'users'),
+      where('role', '==', 'student')
+    );
+    const snap = await getDocs(q);
+    const users = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+    // Sort client-side to avoid requiring a composite index
+    users.sort((a, b) => {
+      const aTime = a.createdAt?.seconds ?? 0;
+      const bTime = b.createdAt?.seconds ?? 0;
+      return bTime - aTime;
+    });
+    return users;
+  } catch (error) {
+    console.error('Error getting users:', error);
+    throw error;
+  }
+};
+
+export const getAllEnrollments = async () => {
+  try {
+    const snap = await getDocs(collection(db, 'enrollments'));
+    return snap.docs.map(d => ({ id: d.id, ...d.data() }));
+  } catch (error) {
+    console.error('Error getting all enrollments:', error);
+    throw error;
+  }
+};
+
 // ============= VIRTUAL BUDDY CHAT =============
 
 export const saveChatMessage = async (enrollmentId, message) => {
@@ -791,4 +824,6 @@ export default {
   awardPoints,
   awardBadge,
   updateStreak,
+  getAllUsers,
+  getAllEnrollments,
 };
