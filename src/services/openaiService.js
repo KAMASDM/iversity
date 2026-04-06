@@ -45,5 +45,6 @@ export async function getVirtualBuddyResponse(
   }
 
   const data = await res.json();
-  return data.response;
+  // Return both the text response and optional quiz object
+  return { response: data.response, quiz: data.quiz || null };
 }
