@@ -200,7 +200,7 @@ const VirtualBuddy = () => {
             <p className="text-[11px] text-white/50 leading-tight">
               {courseContext?.currentLesson
                 ? `${courseContext.currentLesson.slice(0, 28)}${courseContext.currentLesson.length > 28 ? '…' : ''}`
-                : 'Your AI Tutor · Gemini powered'}
+                : 'Your AI Tutor · ASC powered'}
             </p>
           </div>
         </div>
@@ -232,7 +232,7 @@ const VirtualBuddy = () => {
                 ? <><span className="text-purple-300 font-medium">{courseContext.courseName}</span>, concepts, or the platform.</>
                 : 'your courses, AI concepts, or the platform.'}
             </p>
-            <p className="text-[10px] text-purple-400/60 mb-5 text-center">Powered by Gemini · Understands your course</p>
+            <p className="text-[10px] text-purple-400/60 mb-5 text-center">Powered by ASC · Understands your course</p>
 
             {/* Quick question grid */}
             <div className="w-full grid grid-cols-2 gap-2">
