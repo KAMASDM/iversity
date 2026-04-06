@@ -1,26 +1,34 @@
 export const promptEngineeringCourse = {
   title: "Mastering Prompt Engineering",
-  description: "Learn the art and science of crafting effective prompts for AI models. Master techniques to get better results from ChatGPT, Claude, Gemini, and other LLMs.",
+  description: "Learn the art and science of crafting effective prompts for AI models. Master techniques to get better results from ChatGPT, Claude, Gemini, and other LLMs — from zero-shot basics to advanced multi-agent orchestration.",
   category: "AI & Machine Learning",
   level: "intermediate",
-  duration: 8,
+  duration: 20,
   topics: [
     "Fundamentals of Prompt Engineering",
     "Zero-shot and Few-shot Learning",
     "Chain of Thought Prompting",
-    "Role-based Prompting",
-    "Prompt Optimization Techniques",
-    "Advanced Patterns and Frameworks",
+    "Role-based and Persona Prompting",
+    "Advanced Patterns (ReAct, Tree of Thoughts)",
+    "Output Formatting and Constraints",
     "Domain-specific Applications",
-    "Prompt Security and Safety"
+    "Prompt Security and Safety",
+    "Prompt Optimization and Testing",
+    "Prompting for Code and Development",
+    "Multimodal and Vision Prompting",
+    "Multi-agent and Agentic Prompting"
   ],
   objectives: [
     "Understand the fundamentals of how LLMs process prompts",
-    "Master various prompting techniques and patterns",
-    "Apply chain-of-thought reasoning effectively",
-    "Design prompts for specific use cases and domains",
-    "Optimize prompts for accuracy and reliability",
-    "Implement prompt security best practices"
+    "Master zero-shot, few-shot, and chain-of-thought techniques",
+    "Apply ReAct, Tree of Thoughts, and self-consistency patterns",
+    "Design prompts for specific use cases and industries",
+    "Optimize and systematically test prompts for reliability",
+    "Write and debug code using AI language models",
+    "Work with images and multimodal AI models",
+    "Build agentic and multi-agent prompt workflows",
+    "Implement prompt security and injection defences",
+    "Apply ethical and responsible AI prompting practices"
   ],
   prerequisites: [
     "Basic understanding of AI and language models",
@@ -1823,6 +1831,899 @@ Before deploying AI prompts:
             ],
             correctAnswer: 1,
             explanation: "Actively addressing bias requires explicit instructions, diverse perspectives, and systematic bias detection."
+          }
+        ]
+      }
+    },
+    {
+      id: "chapter-9",
+      title: "Prompt Optimization and Systematic Testing",
+      description: "Build rigorous workflows to evaluate and continuously improve your prompts",
+      order: 9,
+      lessons: [
+        {
+          id: "lesson-9-1",
+          title: "Why Prompt Performance Degrades",
+          type: "article",
+          content: `# Why Prompt Performance Degrades
+
+Even a perfect prompt can start producing inconsistent results over time. Understanding why is the first step to building reliable systems.
+
+## The Main Culprits
+
+**Model updates** — providers silently update models. GPT-4o, Claude 3.5, and Gemini 1.5 all behave differently from their predecessors even with identical prompts.
+
+**Context drift** — long conversations accumulate context that subtly shapes later answers.
+
+**Input distribution shift** — when real-world user inputs differ from the inputs you tested with, accuracy drops.
+
+**Temperature variance** — creative tasks at temperature 0.8 produce wildly different outputs on repeat runs.
+
+## Measuring Consistency
+
+Run the same prompt 5–10 times and measure variance:
+\`\`\`
+[Run this prompt 5 times with temperature 0.7]
+
+Classify the urgency of this support ticket as Low / Medium / High:
+"App crashed twice this morning, lost 30 minutes of work."
+
+Urgency:
+\`\`\`
+If you get different answers across runs, your prompt needs more constraints.
+
+## The Regression Test Mindset
+
+Every prompt in production should have a test suite — even if it's just 10 golden examples with known correct outputs. When you change the prompt, run the suite before deploying.`,
+          estimatedMinutes: 20,
+          order: 1
+        },
+        {
+          id: "lesson-9-2",
+          title: "Building a Prompt Evaluation Framework",
+          type: "article",
+          content: `# Building a Prompt Evaluation Framework
+
+A structured framework turns ad-hoc prompt tweaking into a repeatable engineering process.
+
+## The Eval Loop
+
+\`\`\`
+1. Define success criteria (what does "good" look like?)
+2. Build a golden dataset (20–100 test cases with expected outputs)
+3. Run your prompt against the dataset
+4. Score each output automatically or manually
+5. Identify failure patterns
+6. Revise the prompt
+7. Repeat until criteria are met
+\`\`\`
+
+## Automated Scoring Patterns
+
+**Exact match** — for classification, extraction, yes/no questions:
+\`\`\`
+Score = (correct answers / total) × 100
+\`\`\`
+
+**LLM-as-judge** — have a second GPT-4 call score the first:
+\`\`\`
+You are an impartial evaluator.
+
+Task the model was asked to do: {task}
+Model's response: {response}
+Expected answer: {expected}
+
+Score the response 1–5 on accuracy and completeness.
+Reasoning:
+Score:
+\`\`\`
+
+**Rubric scoring** — define explicit criteria before evaluating:
+- Factual accuracy (1–3 pts)
+- Tone/style match (1–2 pts)
+- Format compliance (1 pt)
+- Completeness (1–2 pts)
+
+## Tracking Across Versions
+
+Keep a simple log:
+| Version | Change | Score | Date |
+|---------|--------|-------|------|
+| v1 | Baseline | 62% | Jan 10 |
+| v2 | Added role | 74% | Jan 11 |
+| v3 | Added examples | 81% | Jan 12 |`,
+          estimatedMinutes: 30,
+          order: 2
+        },
+        {
+          id: "lesson-9-3",
+          title: "Prompt Compression and Token Efficiency",
+          type: "article",
+          content: `# Prompt Compression and Token Efficiency
+
+Shorter prompts are faster and cheaper. But every token you cut risks losing quality. This lesson teaches you how to cut the fat without cutting the muscle.
+
+## The Token Budget Mindset
+
+Every word costs money at scale. A 1,000-token system prompt run 1 million times per month costs ~$1,500/month on GPT-4o. Compressing to 500 tokens halves that cost.
+
+## What to Cut
+
+**Cut without consequence:**
+- Politeness filler ("Please kindly...", "I would appreciate it if...")
+- Redundant restatements ("In other words, what I mean is...")
+- Over-explained obvious things ("AI, which stands for Artificial Intelligence...")
+
+**Cut carefully:**
+- Examples (each example uses tokens but improves quality significantly)
+- Constraints (cutting "do not include..." often causes the omitted behaviour to appear)
+
+**Never cut:**
+- The core task definition
+- The output format specification
+- Critical constraints that affect safety or accuracy
+
+## Compression Techniques
+
+**Abbreviation with definition:**
+\`\`\`
+# Before (28 tokens)
+You should analyze the sentiment of the following text and determine whether it is positive, negative, or neutral.
+
+# After (16 tokens)
+Classify sentiment (positive/negative/neutral):
+\`\`\`
+
+**Inline examples vs block examples:**
+\`\`\`
+# Before
+Example input: "The service was great"
+Example output: positive
+
+# After  
+"The service was great" → positive
+\`\`\`
+
+**Structured abbreviation:**
+\`\`\`
+Format: JSON with keys: name(str), age(int), active(bool)
+\`\`\`
+
+## Measuring the Trade-off
+
+Always test compressed prompts against your golden dataset before deploying. A 40% token reduction that drops accuracy from 85% to 70% is not a win.`,
+          estimatedMinutes: 25,
+          order: 3
+        }
+      ],
+      quiz: {
+        enabled: true,
+        questions: [
+          {
+            id: "q9-1",
+            question: "What is a 'golden dataset' in prompt evaluation?",
+            options: [
+              "A dataset that costs a lot of money",
+              "A set of test cases with known correct outputs used to benchmark prompt quality",
+              "The training data used to build the AI model",
+              "A dataset that never needs updating"
+            ],
+            correctAnswer: 1,
+            explanation: "A golden dataset contains carefully curated examples with known correct answers. It acts as the yardstick for measuring whether your prompt changes are improvements or regressions."
+          },
+          {
+            id: "q9-2",
+            question: "What is the main risk of compressing a prompt too aggressively?",
+            options: [
+              "The prompt becomes too short to send",
+              "The model refuses to process it",
+              "Critical instructions or constraints may be lost, reducing output quality",
+              "Token costs actually increase"
+            ],
+            correctAnswer: 2,
+            explanation: "Cutting too many tokens can remove essential constraints or context. Always validate compressed prompts against your test suite before deploying."
+          },
+          {
+            id: "q9-3",
+            question: "What does 'LLM-as-judge' mean in prompt evaluation?",
+            options: [
+              "Using a human lawyer to evaluate AI outputs",
+              "Using a second AI model call to score the output of the first",
+              "Using the model to write its own test cases",
+              "Running the prompt only once and judging manually"
+            ],
+            correctAnswer: 1,
+            explanation: "LLM-as-judge uses a second model call (often a more capable model) to evaluate the quality of your primary model's output against a rubric or expected answer."
+          }
+        ]
+      }
+    },
+    {
+      id: "chapter-10",
+      title: "Prompting for Code and Software Development",
+      description: "Use AI to accelerate every stage of the software development lifecycle",
+      order: 10,
+      lessons: [
+        {
+          id: "lesson-10-1",
+          title: "Code Generation Fundamentals",
+          type: "article",
+          content: `# Code Generation Fundamentals
+
+AI models are remarkably capable programmers — when you give them the right prompts. Vague prompts produce vague code. Specific prompts produce working code.
+
+## The Five Elements of a Great Code Prompt
+
+1. **Language and version** — "Python 3.11", "TypeScript 5.x", "SQL (PostgreSQL 16)"
+2. **What it should do** — precise functional description
+3. **What it should NOT do** — constraints, edge cases to handle
+4. **Input/output examples** — show exactly what goes in and what should come out
+5. **Style preferences** — libraries to use/avoid, error handling expectations
+
+## Template
+
+\`\`\`
+Language: Python 3.11
+
+Write a function that:
+- Takes a list of employee objects with keys: name, department, salary
+- Returns a dictionary mapping each department to its average salary
+- Handles an empty list by returning an empty dictionary
+- Uses type hints
+
+Example:
+Input: [{"name": "Alice", "department": "Eng", "salary": 90000}, {"name": "Bob", "department": "Eng", "salary": 110000}]
+Output: {"Eng": 100000.0}
+
+Include docstring and handle edge cases.
+\`\`\`
+
+## Common Mistakes
+
+**Too vague:**
+\`\`\`
+Write a function to process data.
+\`\`\`
+
+**Better:**
+\`\`\`
+Write a Python function that reads a CSV file, removes rows where the "revenue" column is NULL, and returns a pandas DataFrame sorted by "date" descending.
+\`\`\``,
+          estimatedMinutes: 25,
+          order: 1
+        },
+        {
+          id: "lesson-10-2",
+          title: "Code Review and Debugging Prompts",
+          type: "article",
+          content: `# Code Review and Debugging Prompts
+
+AI is an exceptional code reviewer — it never gets tired, never rushes, and has seen millions of codebases.
+
+## The Bug Report Pattern
+
+\`\`\`
+Language: JavaScript (Node.js 20)
+
+The following function is supposed to debounce API calls, but it's firing immediately on first call and then not debouncing subsequent calls. Find the bug and explain why it occurs.
+
+\`\`\`js
+function debounce(fn, delay) {
+  let timer;
+  return function(...args) {
+    clearTimeout(timer);
+    fn.apply(this, args);
+    timer = setTimeout(() => {}, delay);
+  };
+}
+\`\`\`
+
+Expected behaviour: first call should wait [delay]ms, subsequent calls within [delay]ms should reset the timer.
+\`\`\`
+
+## The Security Review Pattern
+
+\`\`\`
+Review the following Express.js route handler for security vulnerabilities. Focus on:
+1. SQL injection risks
+2. Input validation gaps
+3. Authentication/authorisation issues
+4. Sensitive data exposure
+
+For each issue found: describe the vulnerability, its severity (Critical/High/Medium/Low), and the fix.
+
+\`\`\`js
+[your code here]
+\`\`\`
+\`\`\`
+
+## Performance Analysis
+
+\`\`\`
+Analyse this Python function for performance issues. The function is called 10,000 times per second in production.
+
+Identify:
+- Time complexity issues
+- Unnecessary allocations
+- Missing caching opportunities
+
+Suggest optimised alternatives with estimated performance improvement.
+
+[code]
+\`\`\`
+
+## The Rubber Duck Pattern
+
+When you are stuck and don't know where to start:
+\`\`\`
+I'm debugging a race condition in a Node.js async function. Here's what I know:
+- [Symptom]
+- [What I've tried]
+- [What I expected vs what happened]
+
+Ask me clarifying questions to help narrow down the cause.
+\`\`\``,
+          estimatedMinutes: 30,
+          order: 2
+        },
+        {
+          id: "lesson-10-3",
+          title: "Test Generation and Documentation",
+          type: "article",
+          content: `# Test Generation and Documentation
+
+Two things developers consistently under-invest in: tests and docs. AI makes both nearly free.
+
+## Unit Test Generation
+
+\`\`\`
+Generate comprehensive unit tests for the following Python function using pytest.
+
+Cover:
+- Happy path (normal inputs)
+- Edge cases (empty input, single element, very large input)
+- Error cases (wrong type, None values)
+- Boundary values
+
+Function:
+\`\`\`python
+def calculate_tax(income: float, filing_status: str) -> float:
+    brackets = {
+        "single":  [(10000, 0.10), (40000, 0.12), (85000, 0.22), (float("inf"), 0.24)],
+        "married": [(20000, 0.10), (80000, 0.12), (170000, 0.22), (float("inf"), 0.24)],
+    }
+    # ... implementation
+\`\`\`
+\`\`\`
+
+## API Documentation Generation
+
+\`\`\`
+Generate OpenAPI 3.0 documentation for this Express.js route.
+
+Include: description, parameters, request body schema, response schemas (200, 400, 401, 404, 500), and example request/response pairs.
+
+\`\`\`js
+router.post('/api/users/:id/orders', authenticate, async (req, res) => {
+  // ...
+});
+\`\`\`
+\`\`\`
+
+## README Generation
+
+\`\`\`
+Generate a professional README.md for this project.
+
+Project context:
+- Name: DataPipeline CLI
+- Language: Python 3.11
+- Purpose: ETL tool for CSV → PostgreSQL
+- Key features: schema inference, data validation, incremental loads
+- Target users: data engineers
+
+Include: badges, installation, quick start, configuration reference, contributing guide.
+\`\`\``,
+          estimatedMinutes: 25,
+          order: 3
+        }
+      ],
+      quiz: {
+        enabled: true,
+        questions: [
+          {
+            id: "q10-1",
+            question: "Which element is most important to include in a code generation prompt?",
+            options: [
+              "The programmer's name",
+              "The language/version and a precise description of inputs, outputs, and constraints",
+              "How long you expect the code to take",
+              "The name of the framework you like most"
+            ],
+            correctAnswer: 1,
+            explanation: "Language/version and precise input/output/constraint specifications remove ambiguity, which is the main cause of AI-generated code that almost works but has edge case bugs."
+          },
+          {
+            id: "q10-2",
+            question: "When asking for a code review, what should you specify?",
+            options: [
+              "Nothing — just paste the code",
+              "The colour scheme you prefer",
+              "The focus areas (security, performance, readability) and severity scale for issues",
+              "Only the function names, not the implementation"
+            ],
+            correctAnswer: 2,
+            explanation: "Without focus areas, the model produces a generic review. Specifying 'security review' or 'performance analysis' anchors the review to what actually matters for your use case."
+          },
+          {
+            id: "q10-3",
+            question: "What is the 'Rubber Duck' prompting pattern for debugging?",
+            options: [
+              "Asking the AI to quack at your code",
+              "Describing your bug symptoms and asking the AI to ask clarifying questions",
+              "Generating 10 alternative implementations",
+              "Running the code in a sandbox"
+            ],
+            correctAnswer: 1,
+            explanation: "When you're stuck, describing what you know (symptoms, what you tried, expected vs actual) and asking for clarifying questions often surfaces the bug faster than asking for a direct fix."
+          }
+        ]
+      }
+    },
+    {
+      id: "chapter-11",
+      title: "Multimodal and Vision Prompting",
+      description: "Unlock the power of image understanding, generation, and document analysis with AI",
+      order: 11,
+      lessons: [
+        {
+          id: "lesson-11-1",
+          title: "Understanding Vision-Language Models",
+          type: "article",
+          content: `# Understanding Vision-Language Models
+
+GPT-4o, Claude 3.5 Sonnet, and Gemini 1.5 Pro can all see. They accept images as part of your prompt and reason about visual content with the same sophistication they apply to text.
+
+## What Vision Models Can Do
+
+- **Describe** images in detail
+- **Extract** text from screenshots, documents, receipts, whiteboards
+- **Analyse** charts, graphs, diagrams, and data visualisations
+- **Identify** objects, people (where permitted), landmarks, products
+- **Compare** multiple images and describe differences
+- **Answer questions** about specific parts of an image
+- **Generate structured data** from visual inputs (tables from screenshots, JSON from forms)
+
+## What They Struggle With
+
+- Precise spatial coordinates ("what's at pixel 342, 178?")
+- Very small text in low-resolution images
+- Counting large numbers of identical objects precisely
+- Confident identification of private individuals
+
+## The Basic Vision Prompt Template
+
+\`\`\`
+[Attach image]
+
+Task: [What you want to do with the image]
+Focus on: [Specific aspects to pay attention to]
+Output format: [How you want the result structured]
+\`\`\``,
+          estimatedMinutes: 20,
+          order: 1
+        },
+        {
+          id: "lesson-11-2",
+          title: "Document and Data Extraction",
+          type: "article",
+          content: `# Document and Data Extraction
+
+One of the highest-value use cases for vision models is extracting structured data from unstructured visual inputs — invoices, forms, contracts, whiteboards, screenshots.
+
+## Invoice Extraction
+
+\`\`\`
+[Attach invoice image]
+
+Extract all information from this invoice into the following JSON structure:
+
+{
+  "invoice_number": "",
+  "invoice_date": "",
+  "due_date": "",
+  "vendor": { "name": "", "address": "", "email": "", "phone": "" },
+  "customer": { "name": "", "address": "" },
+  "line_items": [
+    { "description": "", "quantity": 0, "unit_price": 0, "total": 0 }
+  ],
+  "subtotal": 0,
+  "tax_rate": 0,
+  "tax_amount": 0,
+  "total_due": 0
+}
+
+If any field is not visible, use null. Return only the JSON, no commentary.
+\`\`\`
+
+## Chart Analysis
+
+\`\`\`
+[Attach chart/graph image]
+
+Analyse this chart and provide:
+1. Chart type and what it measures
+2. Key trends or patterns
+3. Notable outliers or anomalies
+4. The highest and lowest values and when they occurred
+5. A one-sentence business insight
+
+Format as structured bullet points.
+\`\`\`
+
+## Whiteboard to Action Items
+
+\`\`\`
+[Attach whiteboard photo]
+
+This is a photo from our planning session. Please:
+1. Transcribe all text exactly as written
+2. Identify any diagrams and describe what they show
+3. Extract any action items, decisions, or next steps mentioned
+4. Organise everything into a structured meeting summary
+\`\`\``,
+          estimatedMinutes: 30,
+          order: 2
+        },
+        {
+          id: "lesson-11-3",
+          title: "Image Generation Prompting (DALL-E, Midjourney, Stable Diffusion)",
+          type: "article",
+          content: `# Image Generation Prompting
+
+Text-to-image models are a completely different beast. They respond to descriptive, evocative language — not instruction-style text.
+
+## The Anatomy of an Image Prompt
+
+\`\`\`
+[Subject] [Action/Pose] [Environment/Setting] [Lighting] [Style] [Technical parameters]
+\`\`\`
+
+## Example Progression
+
+**Weak:**
+\`\`\`
+A woman in an office.
+\`\`\`
+
+**Better:**
+\`\`\`
+A professional woman in her 30s working at a standing desk in a modern open-plan tech office, natural window light from the left, candid documentary style.
+\`\`\`
+
+**Strong:**
+\`\`\`
+Candid photograph of a South Asian woman in her 30s, business casual attire, focused expression, working at a dual-monitor standing desk in a bright open-plan office, floor-to-ceiling windows, golden afternoon light, shallow depth of field, Sony A7 III, 50mm f/1.8, photorealistic, 8K.
+\`\`\`
+
+## Style Keywords That Work Reliably
+
+- **Photography:** "photorealistic", "DSLR", "bokeh", "golden hour", "studio lighting"
+- **Illustration:** "flat design", "vector art", "line art", "watercolour"
+- **Artistic:** "oil painting", "oil on canvas", "impressionist", "concept art"
+- **Technical:** "technical diagram", "isometric illustration", "blueprint style"
+
+## Negative Prompting (Stable Diffusion / Midjourney)
+
+Explicitly exclude unwanted elements:
+\`\`\`
+Positive: professional headshot, confident expression, clean background
+Negative: blurry, distorted, multiple people, text, watermark, low quality
+\`\`\`
+
+## DALL-E 3 via GPT-4
+
+DALL-E 3 is highly instruction-following. Write it like a detailed brief:
+\`\`\`
+Create a minimalist flat-design illustration for a fintech app onboarding screen. 
+Show a smartphone displaying a rising graph, surrounded by subtle coin and chart icons. 
+Colour palette: deep navy (#1a2744) and bright teal (#00d4aa). 
+Style: modern SaaS, clean lines, no gradients.
+\`\`\``,
+          estimatedMinutes: 25,
+          order: 3
+        }
+      ],
+      quiz: {
+        enabled: true,
+        questions: [
+          {
+            id: "q11-1",
+            question: "What is vision-language models' biggest practical limitation with images?",
+            options: [
+              "They can only process images under 1MB",
+              "They cannot process colour images",
+              "Precise spatial coordinates, counting large groups, and low-resolution small text",
+              "They can only describe outdoor scenes"
+            ],
+            correctAnswer: 2,
+            explanation: "Vision models excel at semantic understanding but struggle with pixel-precise tasks, accurate counting of large identical groups, and tiny text in low-resolution images."
+          },
+          {
+            id: "q11-2",
+            question: "For image generation prompts, which approach produces the best results?",
+            options: [
+              "Simple instruction-style text like 'draw a dog'",
+              "Rich descriptive language covering subject, environment, lighting, and style",
+              "Only specifying the colour scheme",
+              "Asking the model to surprise you"
+            ],
+            correctAnswer: 1,
+            explanation: "Image generation models respond to descriptive, evocative language. The more specific you are about subject, environment, lighting, style, and technical parameters, the more predictable and professional the output."
+          },
+          {
+            id: "q11-3",
+            question: "What is 'negative prompting' in image generation?",
+            options: [
+              "Writing a negative review of the generated image",
+              "Asking the model to generate an ugly image",
+              "Explicitly specifying elements you do NOT want in the image",
+              "Reducing the image quality settings"
+            ],
+            correctAnswer: 2,
+            explanation: "Negative prompting tells the model what to exclude (blurriness, watermarks, distortions). It's especially powerful in Stable Diffusion and Midjourney to prevent common artefacts."
+          }
+        ]
+      }
+    },
+    {
+      id: "chapter-12",
+      title: "Multi-Agent and Agentic Prompting",
+      description: "Design prompt systems that power autonomous AI agents and multi-agent workflows",
+      order: 12,
+      lessons: [
+        {
+          id: "lesson-12-1",
+          title: "From Prompts to Agents",
+          type: "article",
+          content: `# From Prompts to Agents
+
+A single prompt gets a single answer. An agent uses a prompt as its brain — reading the world, deciding what to do, taking actions, and iterating until a goal is achieved.
+
+## What Makes an Agent?
+
+An AI agent has four components:
+1. **A goal** — what it's trying to achieve
+2. **A perception** — what it can see (text, tool outputs, memory)
+3. **A decision loop** — how it decides what to do next
+4. **Actions** — tools it can call (web search, code execution, file read/write, API calls)
+
+## The System Prompt as an Agent's Constitution
+
+For agents, the system prompt is more than instructions — it defines identity, capabilities, and boundaries:
+
+\`\`\`
+You are ResearchAgent, an autonomous research assistant.
+
+## Your Goal
+Complete the research task assigned to you as thoroughly as possible.
+
+## Your Capabilities
+- search_web(query): Search the internet and return a summary of top results
+- read_url(url): Fetch and read the content of a webpage
+- write_file(filename, content): Save content to a file
+- create_summary(text): Summarise a long document
+
+## Your Decision Process
+For each step:
+1. Think: What do I know? What do I still need?
+2. Plan: What is the single most useful action right now?
+3. Act: Call the appropriate tool
+4. Observe: What did I learn?
+5. Repeat until the goal is achieved or you've taken 15 steps.
+
+## Your Constraints
+- Never access URLs that aren't directly relevant to the research task
+- Always cite your sources in the final output
+- If you are uncertain, state your confidence level
+- Stop and ask the user if you encounter a decision that could have significant consequences
+
+## Output Format
+When the task is complete, produce a structured report with: Executive Summary, Key Findings (with sources), Gaps and Uncertainties, Recommended Next Steps.
+\`\`\``,
+          estimatedMinutes: 25,
+          order: 1
+        },
+        {
+          id: "lesson-12-2",
+          title: "Multi-Agent Orchestration Patterns",
+          type: "article",
+          content: `# Multi-Agent Orchestration Patterns
+
+Complex tasks can be parallelised or pipelined across multiple specialised agents, each prompted for a specific role.
+
+## The Orchestrator–Worker Pattern
+
+One orchestrator agent breaks the task into sub-tasks and delegates to specialist workers.
+
+**Orchestrator system prompt:**
+\`\`\`
+You are ProjectOrchestrator. Your job is to decompose complex projects into sub-tasks and assign them to the right specialist agents.
+
+Available agents:
+- ResearchAgent: gathers information from the web
+- WriterAgent: drafts text content
+- AnalystAgent: analyses data and produces insights  
+- ReviewerAgent: fact-checks and edits content
+
+When you receive a project request:
+1. Break it into 3–7 discrete sub-tasks
+2. For each task, specify: agent, input, expected output, dependencies
+3. Return a JSON task plan
+4. After all tasks complete, synthesise outputs into a final deliverable
+
+Always identify dependencies — tasks that need another task's output before starting.
+\`\`\`
+
+**Worker agent example (WriterAgent):**
+\`\`\`
+You are WriterAgent. You receive a writing brief and produce a polished draft.
+
+You will be given:
+- topic: the subject to write about
+- research_summary: background information gathered by ResearchAgent
+- tone: the target tone (professional / conversational / technical)
+- length: approximate word count
+- audience: who will read this
+
+Produce a draft article. Do not add facts that aren't in the research_summary — flag gaps instead.
+\`\`\`
+
+## The Critic–Reviser Pattern
+
+A two-agent loop where one agent produces and another critiques until quality meets a threshold:
+
+\`\`\`
+Round 1:
+- ProducerAgent generates output
+- CriticAgent scores it 1–10 and lists specific improvements
+
+Round 2:
+- ProducerAgent revises based on critique
+- CriticAgent scores again
+
+Repeat until score ≥ 8 or 3 rounds complete.
+\`\`\`
+
+## Parallel Research Pattern
+
+Fan out to multiple agents simultaneously:
+\`\`\`
+MainAgent receives: "Analyse the competitive landscape for AI coding assistants"
+
+Simultaneously spawn:
+- Agent1: research GitHub Copilot (features, pricing, limitations)
+- Agent2: research Cursor (features, pricing, limitations)  
+- Agent3: research Codeium (features, pricing, limitations)
+- Agent4: research market size and growth trends
+
+After all complete, MainAgent synthesises into a comparison report.
+\`\`\``,
+          estimatedMinutes: 35,
+          order: 2
+        },
+        {
+          id: "lesson-12-3",
+          title: "Memory, Context, and Stateful Agents",
+          type: "article",
+          content: `# Memory, Context, and Stateful Agents
+
+An agent without memory starts from scratch on every call. Real-world agents need to remember past actions, user preferences, and accumulated knowledge.
+
+## Types of Agent Memory
+
+**In-context memory** — everything in the current prompt window. Limited by context length; ideal for short sessions.
+
+**External memory (RAG)** — a vector database or simple key-value store the agent can read/write. Persists across sessions. Used in systems like AutoGPT and LangChain agents.
+
+**Episodic memory** — a log of past interactions summarised and retrieved by relevance. The agent can "remember" conversations from weeks ago.
+
+**Procedural memory** — stored instructions or "skills" the agent can look up, e.g. a library of prompt templates for specific sub-tasks.
+
+## Designing for Memory in System Prompts
+
+\`\`\`
+You are PersonalAssistant for {user_name}.
+
+## What You Know About This User
+{retrieved_user_profile}
+
+## Recent Conversation History
+{last_5_interactions_summary}
+
+## Active Tasks
+{current_open_tasks}
+
+When the user asks about something, first check if you already have relevant information above before asking for it again. Update your understanding of the user's preferences based on what they tell you in this conversation.
+
+At the end of the session, you will be given a chance to update the user's profile — flag any new preferences or important facts you learned.
+\`\`\`
+
+## Context Window Management
+
+When building long-running agents, you must manage the growing context:
+
+**Summarise aggressively** — keep last N actions verbatim, summarise everything older.
+
+**Use a scratchpad** — a structured working memory the agent updates each turn:
+\`\`\`
+## Current Task
+[What I'm doing right now]
+
+## What I Know So Far
+[Key facts gathered]
+
+## What I Still Need
+[Open questions]
+
+## Actions Taken
+[Numbered log of steps]
+\`\`\`
+
+**Hard limits** — if context exceeds 80% of the window, force a summary step before continuing.
+
+## Putting It All Together
+
+The most powerful agentic systems combine:
+- A well-defined system prompt (the agent's constitution)
+- External memory for persistence
+- A scratchpad for working state
+- Hard constraints to prevent runaway loops
+- Human-in-the-loop checkpoints for high-stakes decisions
+
+You now have every building block needed to design production-grade AI agents.`,
+          estimatedMinutes: 30,
+          order: 3
+        }
+      ],
+      quiz: {
+        enabled: true,
+        questions: [
+          {
+            id: "q12-1",
+            question: "What are the four components that define an AI agent?",
+            options: [
+              "Prompt, model, API key, and output",
+              "Goal, perception, decision loop, and actions",
+              "Training data, weights, tokeniser, and decoder",
+              "User, developer, server, and database"
+            ],
+            correctAnswer: 1,
+            explanation: "An agent needs a goal (what to achieve), perception (what it can see), a decision loop (how to decide next steps), and actions (tools it can use). Without all four, it's just a prompt."
+          },
+          {
+            id: "q12-2",
+            question: "In the Orchestrator-Worker pattern, what is the orchestrator's primary responsibility?",
+            options: [
+              "Writing the final output directly",
+              "Decomposing the task, assigning sub-tasks to workers, and synthesising their outputs",
+              "Searching the web for information",
+              "Storing memory in the database"
+            ],
+            correctAnswer: 1,
+            explanation: "The orchestrator is the planner — it breaks down a complex goal, decides which specialist agent handles each piece, manages dependencies, and combines the results into a coherent whole."
+          },
+          {
+            id: "q12-3",
+            question: "Why is context window management critical for long-running agents?",
+            options: [
+              "It isn't — context windows are unlimited",
+              "Because agents cost more money per token",
+              "Because without it, old context accumulates until the window fills up, causing the agent to lose track of early goals or fail entirely",
+              "Because agents cannot read context windows"
+            ],
+            correctAnswer: 2,
+            explanation: "Every action, observation, and reasoning step added to the context eventually fills the window. Without aggressive summarisation and pruning, long-running agents degrade or crash. This is one of the hardest engineering challenges in agentic AI."
           }
         ]
       }
