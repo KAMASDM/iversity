@@ -261,10 +261,21 @@ const VirtualBuddy = () => {
           timestamp: new Date().toISOString(),
         };
       } catch (apiErr) {
-        console.warn('[Buddy] API failed, using local fallback. Reason:', apiErr?.message || apiErr);
-        const ragContext = retrieveContext(trimmed, knowledgeRef.current, 8);
-        const responseText = await askLocalBuddy(trimmed, ragContext);
-        buddyMsg = { role: 'assistant', content: responseText, quiz: null, timestamp: new Date().toISOString() };
+        console.warn('[Buddy] API failed. Reason:', apiErr?.message || apiErr);
+        // Quiz requests need the AI backend — local extractive search can't generate MCQs
+        const isQuizLike = /quiz|test me|ask me|multiple.?choice|practice question|check my understanding/i.test(trimmed);
+        if (isQuizLike) {
+          buddyMsg = {
+            role: 'assistant',
+            content: "I need my AI backend to generate quiz questions, but it seems to be temporarily unavailable. Please try again in a moment — it usually comes back quickly!",
+            quiz: null,
+            timestamp: new Date().toISOString(),
+          };
+        } else {
+          const ragContext = retrieveContext(trimmed, knowledgeRef.current, 8);
+          const responseText = await askLocalBuddy(trimmed, ragContext);
+          buddyMsg = { role: 'assistant', content: responseText, quiz: null, timestamp: new Date().toISOString() };
+        }
       }
 
       addMessage(buddyMsg);

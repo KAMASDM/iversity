@@ -22,10 +22,16 @@ export async function getVirtualBuddyResponse(
   // RAG retrieval happens here in the browser — no API key needed
   const retrievedContext = retrieveContext(userMessage, knowledgeChunks, 8);
 
-  const res = await fetch(BUDDY_ENDPOINT, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), 20000);
+
+  let res;
+  try {
+    res = await fetch(BUDDY_ENDPOINT, {
+      signal: controller.signal,
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
       userMessage,
       conversationHistory: conversationHistory.slice(-10),
       studentContext: {
@@ -37,7 +43,10 @@ export async function getVirtualBuddyResponse(
       },
       retrievedContext,
     }),
-  });
+    });
+  } finally {
+    clearTimeout(timer);
+  }
 
   if (!res.ok) {
     const err = await res.json().catch(() => ({}));
