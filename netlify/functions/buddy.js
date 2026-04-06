@@ -19,9 +19,28 @@
  *   Question: { id, question, options: string[4], correct: number, explanation }
  */
 
-const OpenAI = require('openai');
+const OPENAI_URL = 'https://api.openai.com/v1/chat/completions';
 
-const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
+// ── Thin OpenAI wrapper — native fetch, no SDK bundling needed ────────────────
+async function callOpenAI(messages, options) {
+  const apiKey = process.env.OPENAI_API_KEY;
+  if (!apiKey) throw new Error('OPENAI_API_KEY is not configured on this server.');
+
+  const res = await fetch(OPENAI_URL, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      Authorization: `Bearer ${apiKey}`,
+    },
+    body: JSON.stringify({ model: 'gpt-4o-mini', messages, ...options }),
+  });
+
+  if (!res.ok) {
+    const text = await res.text();
+    throw new Error(`OpenAI ${res.status}: ${text.slice(0, 300)}`);
+  }
+  return res.json();
+}
 
 // ── CORS headers ─────────────────────────────────────────────────────────────
 const CORS = {
@@ -135,19 +154,15 @@ exports.handler = async (event) => {
     if (isQuizRequest(userMessage)) {
       const quizPrompt = buildQuizPrompt(studentContext, retrievedContext);
 
-      const completion = await openai.chat.completions.create({
-        model: 'gpt-4o-mini',
-        messages: [
+      const quizResult = await callOpenAI(
+        [
           { role: 'system', content: quizPrompt },
           { role: 'user', content: userMessage.trim() },
         ],
-        temperature: 0.7,
-        max_tokens: 1500,
-        response_format: { type: 'json_object' },
-      });
+        { temperature: 0.7, max_tokens: 1500, response_format: { type: 'json_object' } }
+      );
 
-      const raw = completion.choices[0].message.content.trim();
-      const quizData = JSON.parse(raw);
+      const quizData = JSON.parse(quizResult.choices[0].message.content.trim());
 
       return {
         statusCode: 200,
@@ -164,27 +179,18 @@ exports.handler = async (event) => {
 
     const historyMessages = conversationHistory
       .slice(-10)
-      .map(msg => ({
-        role: msg.role === 'user' ? 'user' : 'assistant',
-        // Strip quiz intro from history so it doesn't confuse the model
-        content: String(msg.content),
-      }));
+      .map(msg => ({ role: msg.role === 'user' ? 'user' : 'assistant', content: String(msg.content) }));
 
-    const messages = [
-      { role: 'system', content: systemPrompt },
-      ...historyMessages,
-      { role: 'user', content: userMessage.trim() },
-    ];
+    const tutorResult = await callOpenAI(
+      [
+        { role: 'system', content: systemPrompt },
+        ...historyMessages,
+        { role: 'user', content: userMessage.trim() },
+      ],
+      { temperature: 0.85, max_tokens: 600, top_p: 0.95 }
+    );
 
-    const completion = await openai.chat.completions.create({
-      model: 'gpt-4o-mini',
-      messages,
-      temperature: 0.85,
-      max_tokens: 600,
-      top_p: 0.95,
-    });
-
-    const reply = completion.choices[0].message.content.trim();
+    const reply = tutorResult.choices[0].message.content.trim();
 
     return {
       statusCode: 200,
@@ -201,13 +207,6 @@ exports.handler = async (event) => {
   }
 };
 
-
-// ── CORS headers ─────────────────────────────────────────────────────────────
-const CORS = {
-  'Access-Control-Allow-Origin': '*',
-  'Access-Control-Allow-Headers': 'Content-Type',
-  'Access-Control-Allow-Methods': 'POST, OPTIONS',
-};
 
 // ── System prompt ─────────────────────────────────────────────────────────────
 function buildSystemPrompt(studentContext, retrievedContext) {
@@ -242,71 +241,3 @@ ${lessonBlock}
 - If the question relates to the current lesson, connect your answer directly to it.
 - If the question is outside the course content, still help — you know a lot about AI.`;
 }
-
-// ── Handler ───────────────────────────────────────────────────────────────────
-exports.handler = async (event) => {
-  // Preflight
-  if (event.httpMethod === 'OPTIONS') {
-    return { statusCode: 204, headers: CORS, body: '' };
-  }
-
-  if (event.httpMethod !== 'POST') {
-    return { statusCode: 405, headers: CORS, body: 'Method Not Allowed' };
-  }
-
-  try {
-    const {
-      userMessage,
-      conversationHistory = [],
-      studentContext = {},
-      retrievedContext = '',
-    } = JSON.parse(event.body || '{}');
-
-    if (!userMessage || typeof userMessage !== 'string' || !userMessage.trim()) {
-      return {
-        statusCode: 400,
-        headers: { ...CORS, 'Content-Type': 'application/json' },
-        body: JSON.stringify({ error: 'userMessage is required' }),
-      };
-    }
-
-    const systemPrompt = buildSystemPrompt(studentContext, retrievedContext);
-
-    // Keep last 10 turns of conversation history
-    const historyMessages = conversationHistory
-      .slice(-10)
-      .map(msg => ({
-        role: msg.role === 'user' ? 'user' : 'assistant',
-        content: String(msg.content),
-      }));
-
-    const messages = [
-      { role: 'system', content: systemPrompt },
-      ...historyMessages,
-      { role: 'user', content: userMessage.trim() },
-    ];
-
-    const completion = await openai.chat.completions.create({
-      model: 'gpt-4o-mini',
-      messages,
-      temperature: 0.85,
-      max_tokens: 600,
-      top_p: 0.95,
-    });
-
-    const reply = completion.choices[0].message.content.trim();
-
-    return {
-      statusCode: 200,
-      headers: { ...CORS, 'Content-Type': 'application/json' },
-      body: JSON.stringify({ response: reply }),
-    };
-  } catch (err) {
-    console.error('[buddy function] error:', err?.message || err);
-    return {
-      statusCode: 500,
-      headers: { ...CORS, 'Content-Type': 'application/json' },
-      body: JSON.stringify({ error: err?.message || 'Internal server error' }),
-    };
-  }
-};
