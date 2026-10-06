@@ -113,68 +113,37 @@ body {
   animation: gradient 3s ease infinite;
 }
 
-.btn-primary {
-  background-color: #0284c7;
-  color: white;
-  padding: 0.5rem 1rem;
-  border-radius: 0.5rem;
-  transition: background-color 0.2s;
+/* ── Shared components ─────────────────────────────────────────────────── */
+@layer components {
+  .btn-primary-gradient {
+    @apply inline-flex items-center gap-2 rounded-xl bg-gradient-to-r from-blue-600 to-violet-600 px-6 py-3 text-sm font-semibold text-white shadow-lg shadow-blue-900/30 transition-opacity hover:opacity-90;
+  }
+  .btn-ghost {
+    @apply inline-flex items-center gap-2 rounded-xl bg-white/[0.06] px-5 py-3 text-sm font-medium text-white transition-colors hover:bg-white/10;
+  }
 }
 
-.btn-primary:hover {
-  background-color: #0369a1;
+/* ── Accessibility ─────────────────────────────────────────────────────── */
+/* In the base layer so components can still opt out with focus:outline-none */
+@layer base {
+  :focus-visible {
+    outline: 2px solid #60a5fa;
+    outline-offset: 2px;
+  }
+
+  html {
+    scroll-behavior: smooth;
+  }
 }
 
-.btn-primary:disabled {
-  opacity: 0.5;
-  cursor: not-allowed;
-}
-
-.btn-secondary {
-  background-color: #e5e7eb;
-  color: #1f2937;
-  padding: 0.5rem 1rem;
-  border-radius: 0.5rem;
-  transition: background-color 0.2s;
-}
-
-.btn-secondary:hover {
-  background-color: #d1d5db;
-}
-
-.card {
-  background-color: white;
-  border-radius: 0.75rem;
-  box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1);
-  padding: 1.5rem;
-  transition: box-shadow 0.2s;
-}
-
-.card:hover {
-  box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1);
-}
-
-.input-field {
-  width: 100%;
-  padding: 0.5rem 1rem;
-  border: 1px solid #d1d5db;
-  border-radius: 0.5rem;
-  outline: none;
-  transition: all 0.2s;
-}
-
-.input-field:focus {
-  border-color: transparent;
-  ring: 2px solid #0ea5e9;
-  box-shadow: 0 0 0 2px #0ea5e9;
-}
-
-.label {
-  display: block;
-  font-size: 0.875rem;
-  font-weight: 500;
-  color: #374151;
-  margin-bottom: 0.5rem;
+@media (prefers-reduced-motion: reduce) {
+  html { scroll-behavior: auto; }
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+  .animate-fade-in { opacity: 1; }
 }
 
 /* Custom scrollbar */

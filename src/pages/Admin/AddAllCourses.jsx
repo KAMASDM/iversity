@@ -103,7 +103,7 @@ const AddAllCourses = () => {
     let existingCourses;
     try {
       existingCourses = await getAllCourses();
-    } catch (err) {
+    } catch {
       toast.error('Failed to fetch existing courses from Firestore.');
       setLoading(false);
       return;

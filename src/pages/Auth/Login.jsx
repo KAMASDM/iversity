@@ -1,13 +1,15 @@
 import { useState } from 'react';
-import { Link, useNavigate } from 'react-router-dom';
+import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { FcGoogle } from 'react-icons/fc';
 import { Mail, Lock, Loader, ArrowRight } from 'lucide-react';
 import { signInWithEmail, signInWithGoogle, getUserData, logOut, resendVerificationEmail } from '../../services/authService';
 import { useAuthStore } from '../../store';
 import { toast } from 'react-toastify';
+import { destinationFor } from '../../utils/routes';
 
 const Login = () => {
   const navigate = useNavigate();
+  const location = useLocation();
   const { setUser, setUserData } = useAuthStore();
   const [loading, setLoading] = useState(false);
   const [unverifiedEmail, setUnverifiedEmail] = useState('');
@@ -34,7 +36,7 @@ const Login = () => {
       setUser(user);
       setUserData(userData);
       toast.success('Welcome back!');
-      navigate(userData?.role === 'admin' ? '/admin/dashboard' : '/student/dashboard');
+      navigate(destinationFor(userData?.role, location.state?.from), { replace: true });
     } catch (err) {
       toast.error(err?.message || 'Failed to sign in');
     } finally {
@@ -50,7 +52,7 @@ const Login = () => {
       setUser(user);
       setUserData(userData);
       toast.success('Signed in successfully!');
-      navigate(userData?.role === 'admin' ? '/admin/dashboard' : '/student/dashboard');
+      navigate(destinationFor(userData?.role, location.state?.from), { replace: true });
     } catch (err) {
       toast.error(err?.message || 'Failed to sign in with Google');
     } finally {

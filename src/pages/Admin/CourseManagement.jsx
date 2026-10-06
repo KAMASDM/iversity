@@ -17,7 +17,7 @@ const CourseManagement = () => {
     try {
       const data = await getAllCourses();
       setCourses(data);
-    } catch (error) {
+    } catch {
       toast.error('Failed to load courses');
     } finally {
       setLoading(false);
@@ -31,7 +31,7 @@ const CourseManagement = () => {
       await deleteCourse(courseId);
       setCourses(courses.filter(c => c.id !== courseId));
       toast.success('Course deleted successfully');
-    } catch (error) {
+    } catch {
       toast.error('Failed to delete course');
     }
   };

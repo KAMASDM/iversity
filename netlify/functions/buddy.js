@@ -2,8 +2,7 @@
  * Netlify Function — buddy
  *
  * Proxies OpenAI chat completions for the Virtual Buddy.
- * The OPENAI_API_KEY env var lives only here on the server —
- * it is never bundled into the client JS.
+ * Requires a verified Firebase user (Authorization: Bearer <ID token>).
  *
  * POST /.netlify/functions/buddy
  * Body: {
@@ -19,35 +18,9 @@
  *   Question: { id, question, options: string[4], correct: number, explanation }
  */
 
-const OPENAI_URL = 'https://api.openai.com/v1/chat/completions';
-
-// ── Thin OpenAI wrapper — native fetch, no SDK bundling needed ────────────────
-async function callOpenAI(messages, options) {
-  const apiKey = process.env.OPENAI_API_KEY;
-  if (!apiKey) throw new Error('OPENAI_API_KEY is not configured on this server.');
-
-  const res = await fetch(OPENAI_URL, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      Authorization: `Bearer ${apiKey}`,
-    },
-    body: JSON.stringify({ model: 'gpt-4o-mini', messages, ...options }),
-  });
-
-  if (!res.ok) {
-    const text = await res.text();
-    throw new Error(`OpenAI ${res.status}: ${text.slice(0, 300)}`);
-  }
-  return res.json();
-}
-
-// ── CORS headers ─────────────────────────────────────────────────────────────
-const CORS = {
-  'Access-Control-Allow-Origin': '*',
-  'Access-Control-Allow-Headers': 'Content-Type',
-  'Access-Control-Allow-Methods': 'POST, OPTIONS',
-};
+const {
+  HttpError, requireUser, rateLimit, parseBody, clip, callOpenAI, callOpenAIJson, withHandler,
+} = require('../lib/server.js');
 
 // ── Quiz intent detection ────────────────────────────────────────────────────
 function isQuizRequest(message) {
@@ -125,119 +98,53 @@ Rules:
 }
 
 // ── Handler ───────────────────────────────────────────────────────────────────
-exports.handler = async (event) => {
-  if (event.httpMethod === 'OPTIONS') {
-    return { statusCode: 204, headers: CORS, body: '' };
-  }
+exports.handler = withHandler(async (event) => {
+  const user = await requireUser(event);
+  rateLimit(`buddy:${user.uid}`, { limit: 20, windowMs: 60_000 });
 
-  if (event.httpMethod !== 'POST') {
-    return { statusCode: 405, headers: CORS, body: 'Method Not Allowed' };
-  }
+  const body = parseBody(event);
+  const userMessage = clip(body.userMessage, 2000).trim();
+  if (!userMessage) throw new HttpError(400, 'userMessage is required');
 
-  try {
-    const {
-      userMessage,
-      conversationHistory = [],
-      studentContext = {},
-      retrievedContext = '',
-    } = JSON.parse(event.body || '{}');
+  const ctx = body.studentContext || {};
+  const studentContext = {
+    courseName: clip(ctx.courseName, 200),
+    currentChapter: clip(ctx.currentChapter, 200),
+    currentLesson: clip(ctx.currentLesson, 200),
+    currentLessonContent: clip(ctx.currentLessonContent, 2000),
+    progressPercentage: Number(ctx.progressPercentage) || 0,
+  };
+  const retrievedContext = clip(body.retrievedContext, 12000);
 
-    if (!userMessage || typeof userMessage !== 'string' || !userMessage.trim()) {
-      return {
-        statusCode: 400,
-        headers: { ...CORS, 'Content-Type': 'application/json' },
-        body: JSON.stringify({ error: 'userMessage is required' }),
-      };
-    }
-
-    // ── Quiz mode ─────────────────────────────────────────────────────────────
-    if (isQuizRequest(userMessage)) {
-      const quizPrompt = buildQuizPrompt(studentContext, retrievedContext);
-
-      const quizResult = await callOpenAI(
-        [
-          { role: 'system', content: quizPrompt },
-          { role: 'user', content: userMessage.trim() },
-        ],
-        { temperature: 0.7, max_tokens: 1500, response_format: { type: 'json_object' } }
-      );
-
-      const quizData = JSON.parse(quizResult.choices[0].message.content.trim());
-
-      return {
-        statusCode: 200,
-        headers: { ...CORS, 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          response: quizData.intro || "Here's your quiz — give it your best shot! 🎯",
-          quiz: { questions: quizData.questions },
-        }),
-      };
-    }
-
-    // ── Normal tutor mode ─────────────────────────────────────────────────────
-    const systemPrompt = buildSystemPrompt(studentContext, retrievedContext);
-
-    const historyMessages = conversationHistory
-      .slice(-10)
-      .map(msg => ({ role: msg.role === 'user' ? 'user' : 'assistant', content: String(msg.content) }));
-
-    const tutorResult = await callOpenAI(
+  // ── Quiz mode ───────────────────────────────────────────────────────────────
+  if (isQuizRequest(userMessage)) {
+    const quizData = await callOpenAIJson(
       [
-        { role: 'system', content: systemPrompt },
-        ...historyMessages,
-        { role: 'user', content: userMessage.trim() },
+        { role: 'system', content: buildQuizPrompt(studentContext, retrievedContext) },
+        { role: 'user', content: userMessage },
       ],
-      { temperature: 0.85, max_tokens: 600, top_p: 0.95 }
+      { temperature: 0.7, max_tokens: 1500 }
     );
-
-    const reply = tutorResult.choices[0].message.content.trim();
-
     return {
-      statusCode: 200,
-      headers: { ...CORS, 'Content-Type': 'application/json' },
-      body: JSON.stringify({ response: reply }),
-    };
-  } catch (err) {
-    console.error('[buddy function] error:', err?.message || err);
-    return {
-      statusCode: 500,
-      headers: { ...CORS, 'Content-Type': 'application/json' },
-      body: JSON.stringify({ error: err?.message || 'Internal server error' }),
+      response: quizData.intro || "Here's your quiz — give it your best shot! 🎯",
+      quiz: { questions: Array.isArray(quizData.questions) ? quizData.questions : [] },
     };
   }
-};
 
+  // ── Normal tutor mode ───────────────────────────────────────────────────────
+  const history = Array.isArray(body.conversationHistory) ? body.conversationHistory : [];
+  const historyMessages = history
+    .slice(-10)
+    .map(msg => ({ role: msg.role === 'user' ? 'user' : 'assistant', content: clip(msg.content, 2000) }));
 
-// ── System prompt ─────────────────────────────────────────────────────────────
-function buildSystemPrompt(studentContext, retrievedContext) {
-  const lessonBlock = studentContext.currentLessonContent
-    ? `\n== CURRENT LESSON (what the student is studying right now) ==\n${studentContext.currentLessonContent}\n`
-    : '';
+  const reply = await callOpenAI(
+    [
+      { role: 'system', content: buildSystemPrompt(studentContext, retrievedContext) },
+      ...historyMessages,
+      { role: 'user', content: userMessage },
+    ],
+    { temperature: 0.85, max_tokens: 600, top_p: 0.95 }
+  );
 
-  return `You are Buddy — a warm, sharp, and genuinely helpful AI tutor at iVersity, an AI-powered education platform. You talk like a real human tutor who actually cares about the student, not like a chatbot reading from a script.
-
-Your personality:
-- Conversational and natural. Use phrases like "Great question!", "So here's the thing...", "Think of it this way...", "Honestly, this trips a lot of people up at first."
-- Explain ideas with real-world analogies and concrete examples, not just textbook definitions.
-- Encourage without being over-the-top ("That's a solid way to think about it" — not "Excellent job!!!").
-- When a student is confused, break things down patiently — one piece at a time.
-- Keep answers focused and digestible. Short paragraphs, natural line breaks.
-- You can be slightly playful, but always stay on-task.
-- NEVER say "As an AI language model", "I apologize", or anything that sounds robotic.
-
-== COURSE KNOWLEDGE BASE (ground your answers here) ==
-${retrievedContext || 'No specific content retrieved. Use your general knowledge about AI, ML, and this platform.'}
-${lessonBlock}
-== STUDENT CONTEXT ==
-- Course: ${studentContext.courseName || 'General AI Learning'}
-- Current chapter: ${studentContext.currentChapter || 'Not specified'}
-- Current lesson: ${studentContext.currentLesson || 'Not specified'}
-- Progress: ${studentContext.progressPercentage || 0}% through the course
-
-== RESPONSE RULES ==
-- Max 4 short, natural paragraphs. No walls of text.
-- End with either a quick check-in ("Does that make sense? Happy to dig deeper!") or a concrete next step.
-- Plain conversational text only — no markdown symbols like **, ##, or ---.
-- If the question relates to the current lesson, connect your answer directly to it.
-- If the question is outside the course content, still help — you know a lot about AI.`;
-}
+  return { response: reply };
+});

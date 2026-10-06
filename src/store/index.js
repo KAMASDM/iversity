@@ -1,28 +1,23 @@
 import { create } from 'zustand';
-import { persist } from 'zustand/middleware';
 
-export const useAuthStore = create(
-  persist(
-    (set) => ({
-      user: null,
-      userData: null,
-      loading: false,
-      error: null,
+// Auth state is hydrated from Firebase's own session on every load (see App.jsx).
+// It is intentionally not persisted: Firebase already keeps the session, and a
+// stale localStorage copy would let route guards act on outdated roles/tokens.
+export const useAuthStore = create((set) => ({
+  user: null,
+  userData: null,
+  loading: true,
+  error: null,
 
-      setUser: (user) => set({ user }),
-      setUserData: (userData) => set({ userData }),
-      setLoading: (loading) => set({ loading }),
-      setError: (error) => set({ error }),
-      
-      clearAuth: () => set({ user: null, userData: null, error: null }),
-    }),
-    {
-      name: 'auth-storage',
-    }
-  )
-);
+  setUser: (user) => set({ user }),
+  setUserData: (userData) => set({ userData }),
+  setLoading: (loading) => set({ loading }),
+  setError: (error) => set({ error }),
 
-export const useCourseStore = create((set, get) => ({
+  clearAuth: () => set({ user: null, userData: null, error: null }),
+}));
+
+export const useCourseStore = create((set) => ({
   courses: [],
   selectedCourse: null,
   loading: false,
@@ -84,6 +79,11 @@ export const useBuddyStore = create((set) => ({
   })),
 
   toggleBuddy: () => set((state) => ({ isOpen: !state.isOpen })),
+
+  // Open Buddy and send a prompt on the student's behalf (e.g. "Explain it simply")
+  pendingPrompt: null,
+  askBuddy: (text) => set({ isOpen: true, pendingPrompt: text }),
+  clearPendingPrompt: () => set({ pendingPrompt: null }),
   
   setLoading: (loading) => set({ loading }),
 

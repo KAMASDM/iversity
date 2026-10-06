@@ -12,7 +12,6 @@ import {
   limit,
   serverTimestamp,
   arrayUnion,
-  arrayRemove,
   increment,
 } from 'firebase/firestore';
 import { db } from '../config/firebase';
@@ -205,12 +204,13 @@ export const getCurriculum = async (enrollmentId) => {
 
 // ============= QUIZ OPERATIONS =============
 
-export const saveQuizResult = async (enrollmentId, quizData) => {
+export const saveQuizResult = async (enrollmentId, studentId, quizData) => {
   try {
     const quizRef = doc(collection(db, 'quizResults'));
     const quizResult = {
       id: quizRef.id,
       enrollmentId,
+      studentId,
       ...quizData,
       submittedAt: serverTimestamp(),
     };
@@ -234,11 +234,12 @@ export const saveQuizResult = async (enrollmentId, quizData) => {
   }
 };
 
-export const getQuizResults = async (enrollmentId) => {
+export const getQuizResults = async (enrollmentId, studentId) => {
   try {
     const q = query(
       collection(db, 'quizResults'),
       where('enrollmentId', '==', enrollmentId),
+      where('studentId', '==', studentId),
       orderBy('submittedAt', 'desc')
     );
     const quizSnapshot = await getDocs(q);
@@ -249,117 +250,8 @@ export const getQuizResults = async (enrollmentId) => {
   }
 };
 
-// ============= ASSIGNMENT OPERATIONS =============
-
-export const submitAssignment = async (enrollmentId, assignmentData) => {
-  try {
-    const assignmentRef = doc(collection(db, 'assignments'));
-    const assignment = {
-      id: assignmentRef.id,
-      enrollmentId,
-      ...assignmentData,
-      submittedAt: serverTimestamp(),
-      status: 'submitted',
-    };
-
-    await setDoc(assignmentRef, assignment);
-
-    // Update enrollment
-    await updateDoc(doc(db, 'enrollments', enrollmentId), {
-      assignmentSubmissions: arrayUnion({
-        assignmentId: assignmentRef.id,
-        moduleId: assignmentData.moduleId,
-        submittedAt: new Date().toISOString(),
-      }),
-    });
-
-    return assignmentRef.id;
-  } catch (error) {
-    console.error('Error submitting assignment:', error);
-    throw error;
-  }
-};
-
-export const gradeAssignment = async (assignmentId, grade, feedback) => {
-  try {
-    await updateDoc(doc(db, 'assignments', assignmentId), {
-      grade,
-      feedback,
-      gradedAt: serverTimestamp(),
-      status: 'graded',
-    });
-  } catch (error) {
-    console.error('Error grading assignment:', error);
-    throw error;
-  }
-};
-
-// ============= EXAM OPERATIONS =============
-
-export const submitExam = async (enrollmentId, examData) => {
-  try {
-    const examRef = doc(collection(db, 'exams'));
-    const exam = {
-      id: examRef.id,
-      enrollmentId,
-      ...examData,
-      submittedAt: serverTimestamp(),
-      status: 'submitted',
-    };
-
-    await setDoc(examRef, exam);
-    return examRef.id;
-  } catch (error) {
-    console.error('Error submitting exam:', error);
-    throw error;
-  }
-};
-
-export const saveExamEvaluation = async (examId, evaluation) => {
-  try {
-    await updateDoc(doc(db, 'exams', examId), {
-      evaluation,
-      evaluatedAt: serverTimestamp(),
-      status: 'evaluated',
-    });
-  } catch (error) {
-    console.error('Error saving exam evaluation:', error);
-    throw error;
-  }
-};
-
 // ============= CERTIFICATE OPERATIONS =============
-
-export const generateCertificate = async (enrollmentId, studentData, courseData, examResult) => {
-  try {
-    const certificateRef = doc(collection(db, 'certificates'));
-    const certificate = {
-      id: certificateRef.id,
-      enrollmentId,
-      studentId: studentData.id,
-      studentName: studentData.displayName,
-      courseId: courseData.id,
-      courseName: courseData.title,
-      issueDate: serverTimestamp(),
-      examScore: examResult.overallScore,
-      certificateNumber: `IVERSITY-${Date.now()}-${Math.random().toString(36).substr(2, 9).toUpperCase()}`,
-    };
-
-    await setDoc(certificateRef, certificate);
-
-    // Update enrollment status
-    await updateDoc(doc(db, 'enrollments', enrollmentId), {
-      status: 'completed',
-      completedAt: serverTimestamp(),
-      certificateId: certificateRef.id,
-    });
-
-    return certificate;
-  } catch (error) {
-    console.error('Error generating certificate:', error);
-    throw error;
-  }
-};
+// Certificates are issued by the final-exam Netlify Function (see netlify/functions/final-exam.js).
 
 export const getCertificate = async (certificateId) => {
   try {
@@ -434,12 +326,13 @@ export const getAllEnrollments = async () => {
 
 // ============= VIRTUAL BUDDY CHAT =============
 
-export const saveChatMessage = async (enrollmentId, message) => {
+export const saveChatMessage = async (enrollmentId, userId, message) => {
   try {
     const chatRef = doc(collection(db, 'chats'));
     const chatMessage = {
       id: chatRef.id,
       enrollmentId,
+      userId,
       ...message,
       timestamp: serverTimestamp(),
     };
@@ -452,11 +345,12 @@ export const saveChatMessage = async (enrollmentId, message) => {
   }
 };
 
-export const getChatHistory = async (enrollmentId) => {
+export const getChatHistory = async (enrollmentId, userId) => {
   try {
     const q = query(
       collection(db, 'chats'),
       where('enrollmentId', '==', enrollmentId),
+      where('userId', '==', userId),
       orderBy('timestamp', 'asc'),
       limit(50)
     );
@@ -802,11 +696,6 @@ export default {
   getCurriculum,
   saveQuizResult,
   getQuizResults,
-  submitAssignment,
-  gradeAssignment,
-  submitExam,
-  saveExamEvaluation,
-  generateCertificate,
   getCertificate,
   saveChatMessage,
   getChatHistory,

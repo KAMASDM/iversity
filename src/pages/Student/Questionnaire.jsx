@@ -1,11 +1,20 @@
 import { useEffect, useState } from 'react';
-import { useParams, useNavigate } from 'react-router-dom';
+import { useParams, useNavigate, Link } from 'react-router-dom';
 import StudentLayout from '../../components/Layout/StudentLayout';
-import { getCourse, enrollStudent, savePersonalizedCurriculum } from '../../services/firestoreService';
-import { generateCourseQuestionnaire, generatePersonalizedCurriculum } from '../../services/geminiService';
+import Loading from '../../components/Loading';
+import { getCourse, enrollStudent, savePersonalizedCurriculum, getStudentEnrollments } from '../../services/firestoreService';
+import { generateCourseQuestionnaire, generatePersonalizedCurriculum, FALLBACK_QUESTIONNAIRE } from '../../services/aiService';
 import { useAuthStore } from '../../store';
 import { toast } from 'react-toastify';
-import { Loader } from 'lucide-react';
+import { ArrowLeft, ArrowRight, Loader, Sparkles } from 'lucide-react';
+
+const CATEGORY_TO_PROFILE = {
+  knowledge: 'experienceLevel',
+  goals: 'goals',
+  style: 'learningStyle',
+  commitment: 'timeCommitment',
+  experience: 'previousKnowledge',
+};
 
 const Questionnaire = () => {
   const { courseId } = useParams();
@@ -18,157 +27,131 @@ const Questionnaire = () => {
   const [submitting, setSubmitting] = useState(false);
 
   useEffect(() => {
-    loadQuestionnaire();
-  }, [courseId]);
-
-  const loadQuestionnaire = async () => {
-    try {
-      const courseData = await getCourse(courseId);
-      setCourse(courseData);
-
-      const questionnaireData = await generateCourseQuestionnaire(
-        courseId,
-        courseData.topics || []
-      );
-      setQuestionnaire(questionnaireData);
-    } catch (error) {
-      console.error('Error loading questionnaire:', error);
-      toast.error('Failed to load questionnaire');
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const handleResponseChange = (questionId, value) => {
-    setResponses({ ...responses, [questionId]: value });
-  };
+    if (!user) return;
+    (async () => {
+      try {
+        const [courseData, enrollments] = await Promise.all([getCourse(courseId), getStudentEnrollments(user.uid)]);
+        const existing = enrollments.find(e => e.courseId === courseId);
+        if (existing) {
+          navigate(`/student/course-room/${existing.id}`, { replace: true });
+          return;
+        }
+        setCourse(courseData);
+        try {
+          setQuestionnaire(await generateCourseQuestionnaire(courseData));
+        } catch {
+          setQuestionnaire(FALLBACK_QUESTIONNAIRE);
+        }
+      } catch (error) {
+        console.error('Error loading questionnaire:', error);
+        toast.error('Failed to load this course');
+      } finally {
+        setLoading(false);
+      }
+    })();
+  }, [courseId, user, navigate]);
 
   const handleSubmit = async (e) => {
     e.preventDefault();
-
-    // Check if all required questions are answered
-    const allAnswered = questionnaire.questions.every(
-      q => !q.required || responses[q.id]
-    );
-
-    if (!allAnswered) {
-      toast.error('Please answer all required questions');
+    const missing = questionnaire.questions.filter(q => q.required && !responses[q.id]);
+    if (missing.length) {
+      toast.error(`Please answer ${missing.length === 1 ? 'the remaining question' : `the ${missing.length} remaining questions`}`);
+      document.getElementById(`q-${missing[0].id}`)?.scrollIntoView({ behavior: 'smooth', block: 'center' });
       return;
     }
 
+    // Map answers onto the profile fields by question category
+    const profile = {};
+    for (const q of questionnaire.questions) {
+      const field = CATEGORY_TO_PROFILE[q.category];
+      const option = q.options.find(o => o.value === responses[q.id]);
+      if (field && option) profile[field] = field === 'timeCommitment' ? option.value : option.label;
+    }
+
     setSubmitting(true);
-
     try {
-      // Process responses to create student profile
-      const studentProfile = {
-        experienceLevel: responses.q1 || 'beginner',
-        goals: responses.q2 || 'general learning',
-        learningStyle: responses.q3 || 'visual',
-        timeCommitment: responses.q4 || '5',
-        previousKnowledge: responses.q5 || 'none',
-      };
-
-      // Enroll student
       const enrollmentId = await enrollStudent(courseId, user.uid, responses);
-
-      // Generate personalized curriculum
-      toast.info('Generating your personalized curriculum...');
-      const curriculum = await generatePersonalizedCurriculum(
-        courseId,
-        studentProfile,
-        responses
-      );
-
-      // Save curriculum
-      await savePersonalizedCurriculum(enrollmentId, curriculum);
-
-      toast.success('Successfully enrolled! Redirecting to your course...');
-      setTimeout(() => {
-        navigate(`/student/course-room/${enrollmentId}`);
-      }, 2000);
+      try {
+        const curriculum = await generatePersonalizedCurriculum(course, profile);
+        await savePersonalizedCurriculum(enrollmentId, curriculum);
+      } catch (error) {
+        // Enrollment succeeded — the plan is a bonus, so don't block on it
+        console.warn('Curriculum generation failed:', error);
+      }
+      toast.success("You're enrolled — let's go!");
+      navigate(`/student/course-room/${enrollmentId}`);
     } catch (error) {
       console.error('Error enrolling:', error);
       toast.error('Failed to enroll in course');
-    } finally {
       setSubmitting(false);
     }
   };
 
   if (loading) {
-    return (
-      <StudentLayout>
-        <div className="text-center py-12">
-          <Loader className="animate-spin mx-auto text-primary-600" size={48} />
-          <p className="mt-4 text-gray-600">Loading questionnaire...</p>
-        </div>
-      </StudentLayout>
-    );
+    return <StudentLayout><Loading fullScreen={false} label="Personalising your enrollment…" /></StudentLayout>;
   }
+
+  const answered = questionnaire ? questionnaire.questions.filter(q => responses[q.id]).length : 0;
+  const total = questionnaire?.questions.length || 0;
 
   return (
     <StudentLayout>
-      <div className="max-w-3xl mx-auto">
+      <div className="mx-auto max-w-2xl">
+        <Link to={`/student/courses/${courseId}`} className="mb-6 inline-flex items-center gap-1.5 text-sm text-gray-400 hover:text-white">
+          <ArrowLeft size={15} /> Back to course
+        </Link>
+
         <div className="mb-8">
-          <h1 className="text-3xl font-bold mb-2">Course Enrollment</h1>
-          <p className="text-gray-600">
-            Help us personalize your learning experience for <strong>{course?.title}</strong>
+          <p className="flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wider text-violet-300">
+            <Sparkles size={14} /> Personalise your path
+          </p>
+          <h1 className="mt-2 text-2xl sm:text-3xl font-bold text-white">{course?.title}</h1>
+          <p className="mt-2 text-gray-400">
+            A few quick questions so Buddy can tailor a study plan to your level, goals and schedule. Takes under a minute.
           </p>
         </div>
 
-        <form onSubmit={handleSubmit} className="space-y-6">
+        <form onSubmit={handleSubmit} className="space-y-4">
           {questionnaire?.questions.map((question, index) => (
-            <div key={question.id} className="card">
-              <label className="block mb-4">
-                <span className="font-semibold text-lg">
-                  {index + 1}. {question.question}
-                  {question.required && <span className="text-red-600 ml-1">*</span>}
-                </span>
-              </label>
-
-              <div className="space-y-3">
-                {question.options.map((option) => (
-                  <label
-                    key={option.value}
-                    className="flex items-start gap-3 p-4 border-2 border-gray-200 rounded-lg cursor-pointer hover:border-primary-500 transition-colors"
-                  >
-                    <input
-                      type="radio"
-                      name={question.id}
-                      value={option.value}
-                      checked={responses[question.id] === option.value}
-                      onChange={(e) => handleResponseChange(question.id, e.target.value)}
-                      className="mt-1"
-                      required={question.required}
-                    />
-                    <span className="flex-1">{option.label}</span>
-                  </label>
-                ))}
+            <fieldset key={question.id} id={`q-${question.id}`} className="rounded-2xl border border-white/[0.07] bg-white/[0.03] p-5 sm:p-6">
+              <legend className="sr-only">{question.question}</legend>
+              <p className="mb-4 font-semibold text-white">
+                <span className="mr-2 text-gray-500 tabular-nums">{index + 1}.</span>
+                {question.question}
+              </p>
+              <div className="grid gap-2 sm:grid-cols-2">
+                {question.options.map((option) => {
+                  const checked = responses[question.id] === option.value;
+                  return (
+                    <label
+                      key={option.value}
+                      className={`flex cursor-pointer items-start gap-3 rounded-xl border px-4 py-3 text-sm transition-colors ${checked ? 'border-blue-500/60 bg-blue-500/10 text-white' : 'border-white/10 text-gray-300 hover:border-white/20 hover:bg-white/[0.04]'}`}
+                    >
+                      <input
+                        type="radio"
+                        name={question.id}
+                        value={option.value}
+                        checked={checked}
+                        onChange={() => setResponses(prev => ({ ...prev, [question.id]: option.value }))}
+                        className="mt-0.5 accent-blue-500"
+                      />
+                      <span>{option.label}</span>
+                    </label>
+                  );
+                })}
               </div>
-            </div>
+            </fieldset>
           ))}
 
-          <div className="flex gap-4">
-            <button
-              type="submit"
-              disabled={submitting}
-              className="btn-primary flex-1 py-3 flex items-center justify-center gap-2"
-            >
-              {submitting ? (
-                <>
-                  <Loader className="animate-spin" size={20} />
-                  Processing...
-                </>
-              ) : (
-                'Complete Enrollment'
-              )}
-            </button>
-            <button
-              type="button"
-              onClick={() => navigate('/student/courses')}
-              className="btn-secondary flex-1 py-3"
-              disabled={submitting}
-            >
-              Cancel
+          <div className="sticky bottom-20 lg:bottom-4 z-10 flex items-center gap-4 rounded-2xl border border-white/10 bg-[#0d1117]/95 p-3 backdrop-blur-xl">
+            <div className="hidden sm:block flex-1 px-2">
+              <div className="h-1.5 overflow-hidden rounded-full bg-white/10">
+                <div className="h-full rounded-full bg-gradient-to-r from-blue-500 to-violet-500 transition-all" style={{ width: `${total ? (answered / total) * 100 : 0}%` }} />
+              </div>
+              <p className="mt-1 text-xs text-gray-500">{answered} of {total} answered</p>
+            </div>
+            <button type="submit" disabled={submitting} className="btn-primary-gradient flex-1 sm:flex-none justify-center disabled:opacity-60">
+              {submitting ? <><Loader className="animate-spin" size={16} /> Building your plan…</> : <>Enroll &amp; start <ArrowRight size={16} /></>}
             </button>
           </div>
         </form>

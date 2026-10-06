@@ -1,11 +1,11 @@
 import admin from 'firebase-admin';
-import { createRequire } from 'module';
 import { readFileSync } from 'fs';
 import { aiFoundationCourse } from './aiFoundationCourse.js';
 import { promptEngineeringCourse } from './promptEngineeringCourse.js';
 import { aiApiAppsCourse } from './aiApiAppsCourse.js';
 import { ragVectorDbCourse } from './ragVectorDbCourse.js';
 import { langchainAgentsCourse } from './langchainAgentsCourse.js';
+import { aiForBusinessLeadersCourse } from './aiForBusinessLeadersCourse.js';
 import { aiForHRCourse } from './aiForHRCourse.js';
 
 const serviceAccount = JSON.parse(readFileSync('./serviceAccountKey.json', 'utf8'));

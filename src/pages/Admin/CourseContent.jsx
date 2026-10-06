@@ -79,7 +79,7 @@ const CourseContent = () => {
         }));
         setChapters(normalizedChapters);
       }
-    } catch (error) {
+    } catch {
       toast.error('Failed to load course');
     } finally {
       setLoading(false);
@@ -100,7 +100,7 @@ const CourseContent = () => {
 
       await updateCourse(courseId, { chapters: validChapters });
       toast.success('Course content saved successfully!');
-    } catch (error) {
+    } catch {
       toast.error('Failed to save course content');
     } finally {
       setSaving(false);
@@ -196,7 +196,7 @@ const CourseContent = () => {
       const field = type === 'video' ? 'videoUrl' : 'documentUrl';
       updateLesson(chapterId, lessonId, field, url);
       toast.success('File uploaded successfully!');
-    } catch (error) {
+    } catch {
       toast.error('Failed to upload file');
     }
   };
@@ -221,7 +221,7 @@ const CourseContent = () => {
       const fileId = await addCoursePptFile(courseId, file.name, file.type, base64, file.size);
       setCoursePptFiles(prev => [...prev, { id: fileId, name: file.name, fileType: file.type, sizeBytes: file.size, data: base64 }]);
       toast.success('File uploaded successfully!');
-    } catch (error) {
+    } catch {
       toast.error('Failed to upload file');
     } finally {
       setUploadingPpt(false);
@@ -232,7 +232,7 @@ const CourseContent = () => {
     try {
       await deleteCoursePptFile(fileId);
       setCoursePptFiles(prev => prev.filter(f => f.id !== fileId));
-    } catch (error) {
+    } catch {
       toast.error('Failed to remove file');
     }
   };

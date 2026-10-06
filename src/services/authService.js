@@ -24,16 +24,17 @@ export const registerWithEmail = async (email, password, userData) => {
       displayName: userData.fullName,
     });
 
-    // Create user document in Firestore
+    // Create user document in Firestore. Every account starts as a student —
+    // admins are promoted by an existing admin (enforced by firestore.rules).
     await setDoc(doc(db, 'users', user.uid), {
       uid: user.uid,
       email: user.email,
       displayName: userData.fullName,
-      role: userData.role || 'student',
+      fullName: userData.fullName,
+      role: 'student',
       createdAt: serverTimestamp(),
       updatedAt: serverTimestamp(),
       profileComplete: false,
-      ...userData,
     });
 
     // Send email verification — user must verify before accessing the app

@@ -2,22 +2,40 @@ import { useEffect, useState } from 'react';
 import StudentLayout from '../../components/Layout/StudentLayout';
 import { useAuthStore } from '../../store';
 import { getStudentCertificates } from '../../services/firestoreService';
-import { Award, BookOpen, Calendar, Hash, Printer } from 'lucide-react';
+import { Link } from 'react-router-dom';
+import { toast } from 'react-toastify';
+import { Award, BookOpen, Calendar, Hash, Link2, Printer, ShieldCheck } from 'lucide-react';
+
+const escapeHtml = (value) => String(value ?? '').replace(/[&<>"']/g, (c) => ({
+  '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;',
+}[c]));
+
+const verifyUrl = (certId) => `${window.location.origin}/verify/${certId}`;
 
 const Certificates = () => {
-  const { userData } = useAuthStore();
+  const { user } = useAuthStore();
   const [certificates, setCertificates] = useState([]);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    if (userData?.uid) {
+    if (user?.uid) {
       loadCertificates();
     }
-  }, [userData]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [user]);
+
+  const copyLink = async (cert) => {
+    try {
+      await navigator.clipboard.writeText(verifyUrl(cert.id));
+      toast.success('Verification link copied');
+    } catch {
+      toast.error("Couldn't copy the link");
+    }
+  };
 
   const loadCertificates = async () => {
     try {
-      const certs = await getStudentCertificates(userData.uid);
+      const certs = await getStudentCertificates(user.uid);
       setCertificates(certs);
     } catch (err) {
       console.error('Error loading certificates:', err);
@@ -33,14 +51,18 @@ const Certificates = () => {
   };
 
   const handlePrint = (cert) => {
-    const issueDate = formatDate(cert.issueDate);
+    const issueDate = escapeHtml(formatDate(cert.issueDate));
     const printWindow = window.open('', '_blank');
+    if (!printWindow) {
+      toast.error('Allow pop-ups to print your certificate');
+      return;
+    }
     printWindow.document.write(`
       <!DOCTYPE html>
       <html>
       <head>
         <meta charset="UTF-8" />
-        <title>Certificate – ${cert.courseName}</title>
+        <title>Certificate – ${escapeHtml(cert.courseName)}</title>
         <style>
           * { margin: 0; padding: 0; box-sizing: border-box; }
           body { font-family: Georgia, serif; background: #fff; display: flex; align-items: center; justify-content: center; min-height: 100vh; }
@@ -68,10 +90,10 @@ const Certificates = () => {
           <div class="cert-sub">AI-Powered Learning Platform</div>
           <hr class="divider" />
           <div class="cert-label">This is to certify that</div>
-          <div class="cert-name">${cert.studentName}</div>
+          <div class="cert-name">${escapeHtml(cert.studentName)}</div>
           <div class="cert-course-label">has successfully completed the course</div>
-          <div class="cert-course">${cert.courseName}</div>
-          <div class="cert-score">Final Exam Score: ${cert.examScore}%</div>
+          <div class="cert-course">${escapeHtml(cert.courseName)}</div>
+          <div class="cert-score">Final Exam Score: ${escapeHtml(cert.examScore)}%</div>
           <div class="cert-footer">
             <div>
               <div style="font-size:18px;font-weight:bold;color:#1a1a2e">iVersity</div>
@@ -82,7 +104,7 @@ const Certificates = () => {
               <div class="label">Date of Issue</div>
             </div>
           </div>
-          <div class="cert-number">Certificate No: ${cert.certificateNumber}</div>
+          <div class="cert-number">Certificate No: ${escapeHtml(cert.certificateNumber)} · Verify at ${escapeHtml(verifyUrl(cert.id))}</div>
         </div>
       </body>
       </html>
@@ -107,8 +129,9 @@ const Certificates = () => {
             <Award className="mx-auto text-gray-500 mb-4" size={56} />
             <h2 className="text-xl font-semibold text-white mb-2">No certificates yet</h2>
             <p className="text-gray-400 max-w-sm mx-auto">
-              Complete a course and pass the final exam to earn your first certificate.
+              Complete every lesson in a course, then pass its final exam with 70% or more to earn your first certificate.
             </p>
+            <Link to="/student/dashboard" className="btn-primary-gradient mt-6">Continue learning</Link>
           </div>
         ) : (
           <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-6">
@@ -156,14 +179,26 @@ const Certificates = () => {
                   </div>
                 </div>
 
-                {/* Action */}
-                <button
-                  onClick={() => handlePrint(cert)}
-                  className="mt-auto w-full flex items-center justify-center gap-2 px-4 py-2.5 rounded-lg bg-gradient-to-r from-blue-600 to-purple-600 text-white text-sm font-semibold hover:scale-[1.02] transition-transform"
-                >
-                  <Printer size={15} />
-                  Print / Download
-                </button>
+                {/* Actions */}
+                <div className="mt-auto grid grid-cols-2 gap-2">
+                  <button
+                    onClick={() => handlePrint(cert)}
+                    className="flex items-center justify-center gap-2 px-3 py-2.5 rounded-lg bg-gradient-to-r from-blue-600 to-violet-600 text-white text-sm font-semibold hover:opacity-90"
+                  >
+                    <Printer size={15} />
+                    Print / PDF
+                  </button>
+                  <button
+                    onClick={() => copyLink(cert)}
+                    className="flex items-center justify-center gap-2 px-3 py-2.5 rounded-lg bg-white/[0.06] text-white text-sm font-medium hover:bg-white/10"
+                  >
+                    <Link2 size={15} />
+                    Share link
+                  </button>
+                </div>
+                <Link to={`/verify/${cert.id}`} className="flex items-center justify-center gap-1.5 text-xs text-gray-500 hover:text-gray-300">
+                  <ShieldCheck size={13} /> View public verification page
+                </Link>
               </div>
             ))}
           </div>

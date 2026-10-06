@@ -2,11 +2,11 @@ import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import StudentLayout from '../../components/Layout/StudentLayout';
 import { useAuthStore } from '../../store';
+import { courseProgress } from '../../utils/progress';
 import { 
   getStudentEnrollments, 
   getCourse,
   getStudentGamification,
-  getStudentAnalytics
 } from '../../services/firestoreService';
 import { 
   TrendingUp, Award, BookOpen, Clock, Target, Zap, 
@@ -20,7 +20,6 @@ const MyProgress = () => {
   const [enrollments, setEnrollments] = useState([]);
   const [courses, setCourses] = useState({});
   const [gamification, setGamification] = useState({});
-  const [analytics, setAnalytics] = useState(null);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
@@ -39,21 +38,18 @@ const MyProgress = () => {
       const coursesData = {};
       const gamificationData = {};
       
-      for (const enrollment of enrollmentsData) {
-        const course = await getCourse(enrollment.courseId);
-        coursesData[enrollment.courseId] = course;
-        
-        // Load gamification data for each course
-        const gamData = await getStudentGamification(user.uid, enrollment.courseId);
-        gamificationData[enrollment.courseId] = gamData;
-      }
+      await Promise.all(enrollmentsData.map(async (enrollment) => {
+        const [course, gamData] = await Promise.all([
+          getCourse(enrollment.courseId).catch(() => null),
+          getStudentGamification(user.uid, enrollment.courseId).catch(() => null),
+        ]);
+        if (course) coursesData[enrollment.courseId] = course;
+        if (gamData) gamificationData[enrollment.courseId] = gamData;
+      }));
       
       setCourses(coursesData);
       setGamification(gamificationData);
 
-      // Load overall analytics
-      const analyticsData = await getStudentAnalytics(user.uid);
-      setAnalytics(analyticsData);
 
     } catch (error) {
       console.error('Error loading progress:', error);
@@ -67,8 +63,8 @@ const MyProgress = () => {
     totalXP: Object.values(gamification).reduce((sum, g) => sum + (g.points || 0), 0),
     totalBadges: Object.values(gamification).reduce((sum, g) => sum + (g.badges?.length || 0), 0),
     maxStreak: Math.max(...Object.values(gamification).map(g => g.streak || 0), 0),
-    avgProgress: enrollments.length > 0 
-      ? enrollments.reduce((sum, e) => sum + (e.progress || 0), 0) / enrollments.length 
+    avgProgress: enrollments.length > 0
+      ? enrollments.reduce((sum, e) => sum + courseProgress(courses[e.courseId], e).pct, 0) / enrollments.length
       : 0,
   };
 
@@ -179,6 +175,7 @@ const MyProgress = () => {
                   const courseGamification = gamification[enrollment.courseId] || {};
                   
                   if (!course) return null;
+                  const stats = courseProgress(course, enrollment);
 
                   return (
                     <div 
@@ -200,10 +197,14 @@ const MyProgress = () => {
                             <p className="text-gray-400 text-sm">{course.category}</p>
                           </div>
                           <button
-                            onClick={() => navigate(`/student/course-room/${enrollment.id}`)}
+                            onClick={() => navigate(
+                              stats.certified ? '/student/certificates'
+                                : stats.examReady ? `/student/exam/${enrollment.id}`
+                                : `/student/course-room/${enrollment.id}`
+                            )}
                             className="px-4 py-2 bg-gradient-to-r from-blue-600 to-purple-600 text-white rounded-lg font-semibold hover:scale-105 transition-transform flex items-center gap-2"
                           >
-                            Continue
+                            {stats.certified ? 'Certificate' : stats.examReady ? 'Final exam' : 'Continue'}
                             <ChevronRight size={16} />
                           </button>
                         </div>
@@ -212,12 +213,12 @@ const MyProgress = () => {
                         <div className="mb-4">
                           <div className="flex justify-between text-sm mb-2">
                             <span className="text-gray-400">Overall Progress</span>
-                            <span className="font-bold text-white">{Math.round(enrollment.progress || 0)}%</span>
+                            <span className="font-bold text-white">{stats.pct}%</span>
                           </div>
                           <div className="w-full bg-white/10 rounded-full h-3">
                             <div
                               className="bg-gradient-to-r from-blue-500 to-purple-500 h-3 rounded-full transition-all duration-500"
-                              style={{ width: `${enrollment.progress || 0}%` }}
+                              style={{ width: `${stats.pct}%` }}
                             />
                           </div>
                         </div>
@@ -230,7 +231,7 @@ const MyProgress = () => {
                               <span className="text-xs text-gray-400">Lessons</span>
                             </div>
                             <p className="text-lg font-bold text-white">
-                              {enrollment.completedLessons?.length || 0}
+                              {stats.completed}<span className="text-sm font-normal text-gray-500">/{stats.total}</span>
                             </p>
                           </div>
 

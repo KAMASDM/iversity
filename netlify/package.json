@@ -1,0 +1,4 @@
+{
+  "//": "Netlify Functions in this folder are CommonJS (the app root is an ES module package).",
+  "type": "commonjs"
+}

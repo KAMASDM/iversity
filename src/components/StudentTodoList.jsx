@@ -44,7 +44,7 @@ const StudentTodoList = ({ courseId }) => {
       setShowForm(false);
       await loadTodos();
       toast.success('Task added!');
-    } catch (error) {
+    } catch {
       toast.error('Failed to add task');
     } finally {
       setLoading(false);
@@ -55,7 +55,7 @@ const StudentTodoList = ({ courseId }) => {
     try {
       await updateTodo(todoId, { completed: !completed });
       await loadTodos();
-    } catch (error) {
+    } catch {
       toast.error('Failed to update task');
     }
   };
@@ -65,7 +65,7 @@ const StudentTodoList = ({ courseId }) => {
       await deleteTodo(todoId);
       await loadTodos();
       toast.success('Task deleted');
-    } catch (error) {
+    } catch {
       toast.error('Failed to delete task');
     }
   };

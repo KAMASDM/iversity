@@ -350,9 +350,9 @@ const Landing = () => {
           {/* Stats bar */}
           <div className="mt-20 grid grid-cols-3 gap-px bg-white/5 rounded-2xl overflow-hidden border border-white/8 shadow-xl">
             {[
-              { val: '10K+', label: 'Active Learners', color: 'text-blue-400'   },
-              { val: '10',   label: 'AI Courses',      color: 'text-violet-400' },
-              { val: '98%',  label: 'Completion Rate', color: 'text-cyan-400'   },
+              { val: coursesLoading ? '—' : String(courses.length), label: 'AI Courses', color: 'text-blue-400' },
+              { val: coursesLoading ? '—' : String(courses.reduce((n, c) => n + (c.chapters?.reduce((m, ch) => m + (ch.lessons?.length || 0), 0) || 0), 0)), label: 'Lessons', color: 'text-violet-400' },
+              { val: '24/7', label: 'AI Tutor', color: 'text-cyan-400' },
             ].map(({ val, label, color }) => (
               <div key={label} className="bg-[#0d1117]/80 backdrop-blur px-8 py-6 text-center">
                 <div className={`text-4xl font-extrabold tabular-nums mb-1 ${color}`}>{val}</div>
@@ -608,45 +608,37 @@ const Landing = () => {
         <div className="absolute top-0 left-0 right-0 h-48 bg-gradient-to-b from-violet-900/6 to-transparent pointer-events-none" />
 
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-          <SectionDivider label="// Learners Say" color="pink" />
+          <SectionDivider label="// How You'll Learn" color="pink" />
 
           <div className="text-center mt-8 mb-12">
             <h2 className="text-3xl lg:text-4xl font-extrabold text-white mb-3">
-              Loved by{' '}
-              <span className="bg-gradient-to-r from-pink-400 to-amber-400 bg-clip-text text-transparent">10,000+ learners</span>
+              A learning loop that{' '}
+              <span className="bg-gradient-to-r from-pink-400 to-amber-400 bg-clip-text text-transparent">actually sticks</span>
             </h2>
-            <p className="text-gray-500 text-base">Real results from real people building real skills.</p>
+            <p className="text-gray-500 text-base">Short lessons, instant practice, help the moment you need it.</p>
           </div>
 
-          <div className="grid md:grid-cols-3 gap-5">
+          <div className="grid sm:grid-cols-2 lg:grid-cols-4 gap-5">
             {[
-              { name: 'Alex M.',  role: 'ML Engineer',        text: 'The AI Buddy actually understands course context. It answered my RAG questions with specific examples from the lesson I was studying.', stars: 5, accent: 'blue'   },
-              { name: 'Priya K.', role: 'Product Manager',    text: 'I went from zero to building LangChain agents in 6 weeks. The adaptive quizzes kept me challenged without overwhelming me.', stars: 5, accent: 'violet' },
-              { name: 'James T.', role: 'Software Developer', text: "The gamification kept me coming back every day. Earned my certificate in under 2 months — the fastest I've ever learned anything.", stars: 5, accent: 'cyan'   },
-            ].map(({ name, role, text, stars, accent }) => {
+              { icon: BookOpen, accent: 'blue',   title: 'Learn in bite-sized lessons', text: 'Read at your own pace or flip to slide mode. The course picks up exactly where you left off.' },
+              { icon: Brain,    accent: 'violet', title: 'Practise right away',         text: 'Every chapter ends with a quiz that shows the right answer and why — so mistakes turn into understanding.' },
+              { icon: Bot,      accent: 'cyan',   title: 'Ask Buddy anytime',           text: 'Your AI tutor knows the lesson you are on, explains it in plain language, and can quiz you on demand.' },
+              { icon: Award,    accent: 'amber',  title: 'Prove what you know',         text: 'Pass the final exam to earn a certificate with a public verification link you can share.' },
+            ].map(({ icon: Icon, accent, title, text }) => {
               const a = {
-                blue:   { border: 'border-blue-500/15',   bar: 'bg-blue-500',   avatar: 'from-blue-500 to-blue-700'     },
-                violet: { border: 'border-violet-500/15', bar: 'bg-violet-500', avatar: 'from-violet-500 to-violet-700' },
-                cyan:   { border: 'border-cyan-500/15',   bar: 'bg-cyan-500',   avatar: 'from-cyan-500 to-teal-600'     },
+                blue:   { border: 'border-blue-500/15',   bar: 'bg-blue-500',   icon: 'bg-blue-500/15 text-blue-300'     },
+                violet: { border: 'border-violet-500/15', bar: 'bg-violet-500', icon: 'bg-violet-500/15 text-violet-300' },
+                cyan:   { border: 'border-cyan-500/15',   bar: 'bg-cyan-500',   icon: 'bg-cyan-500/15 text-cyan-300'     },
+                amber:  { border: 'border-amber-500/15',  bar: 'bg-amber-500',  icon: 'bg-amber-500/15 text-amber-300'   },
               }[accent];
               return (
-                <div key={name} className={`relative bg-[#0d1117] border ${a.border} rounded-2xl p-6 overflow-hidden`}>
+                <div key={title} className={`relative bg-[#0d1117] border ${a.border} rounded-2xl p-6 overflow-hidden`}>
                   <div className={`absolute top-0 left-4 right-4 h-[2px] ${a.bar} rounded-full opacity-50`} />
-                  <div className="flex gap-0.5 mb-4 mt-2">
-                    {[...Array(stars)].map((_, i) => (
-                      <Star key={i} size={13} className="text-yellow-400 fill-yellow-400" />
-                    ))}
+                  <div className={`w-10 h-10 rounded-xl ${a.icon} flex items-center justify-center mb-4 mt-2`}>
+                    <Icon size={20} />
                   </div>
-                  <p className="text-gray-400 text-sm leading-relaxed mb-5">"{text}"</p>
-                  <div className="flex items-center gap-3 pt-4 border-t border-white/5">
-                    <div className={`w-9 h-9 rounded-full bg-gradient-to-br ${a.avatar} flex items-center justify-center text-xs font-bold text-white flex-shrink-0`}>
-                      {name[0]}
-                    </div>
-                    <div>
-                      <p className="text-white text-sm font-semibold leading-tight">{name}</p>
-                      <p className="text-gray-600 text-xs">{role}</p>
-                    </div>
-                  </div>
+                  <p className="text-white font-semibold mb-2">{title}</p>
+                  <p className="text-gray-400 text-sm leading-relaxed">{text}</p>
                 </div>
               );
             })}
@@ -688,7 +680,7 @@ const Landing = () => {
               </h2>
 
               <p className="text-gray-400 text-lg mb-10 max-w-xl mx-auto leading-relaxed">
-                Join thousands of learners already building the skills that will define the next decade.
+                Start building the AI skills that will define the next decade — at your own pace, with a tutor by your side.
               </p>
 
               <Link
@@ -700,7 +692,7 @@ const Landing = () => {
               </Link>
 
               <div className="flex flex-wrap justify-center gap-6 md:gap-10 mt-10 text-sm text-gray-600">
-                {['No credit card required', 'Access 10 AI courses instantly', 'Certificate on completion'].map(t => (
+                {['No credit card required', 'Every course, instantly', 'Certificate on completion'].map(t => (
                   <span key={t} className="flex items-center gap-1.5">
                     <CheckCircle size={13} className="text-emerald-500" />
                     {t}

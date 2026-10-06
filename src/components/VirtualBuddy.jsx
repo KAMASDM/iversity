@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from 'react';
-import { X, Send, Bot, Sparkles, BookOpen, HelpCircle, Zap, GraduationCap, Brain, Lightbulb, CheckCircle, XCircle, Trophy } from 'lucide-react';
-import { useBuddyStore, useEnrollmentStore } from '../store';
+import { X, Send, Bot, Sparkles, BookOpen, HelpCircle, Zap, GraduationCap, Brain, Lightbulb, CheckCircle, XCircle, Trophy, RotateCcw } from 'lucide-react';
+import { useAuthStore, useBuddyStore, useEnrollmentStore } from '../store';
 import { saveChatMessage, getChatHistory, getPublishedCourses } from '../services/firestoreService';
 import { buildKnowledgeBase, retrieveContext } from '../services/ragService';
 import { getVirtualBuddyResponse } from '../services/openaiService';
@@ -17,6 +17,20 @@ const QUICK_QUESTIONS = [
 ];
 
 const OPTION_LABELS = ['A', 'B', 'C', 'D'];
+
+// Messages loaded from Firestore carry a Timestamp; new ones carry an ISO string
+const toDate = (ts) => (ts?.toDate ? ts.toDate() : new Date(ts));
+const formatTime = (ts) => {
+  const d = toDate(ts);
+  return Number.isNaN(d.getTime()) ? '' : d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+};
+const newMessage = (role, content, extra = {}) => ({
+  id: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+  role,
+  content,
+  timestamp: new Date().toISOString(),
+  ...extra,
+});
 
 // ── Interactive Multiple-Choice Quiz Card ────────────────────────────────────
 const QuizCard = ({ questions, answers, onAnswer }) => {
@@ -172,7 +186,9 @@ const VirtualBuddy = () => {
     chatHistory, setChatHistory, addMessage,
     loading, setLoading,
     courseContext,
+    pendingPrompt, clearPendingPrompt,
   } = useBuddyStore();
+  const { user } = useAuthStore();
 
   const { currentEnrollment } = useEnrollmentStore();
   const [message, setMessage] = useState('');
@@ -194,18 +210,28 @@ const VirtualBuddy = () => {
     })();
   }, []);
 
+  // Each course has its own conversation: reset when the student switches course,
+  // then load that course's saved history the first time Buddy opens.
+  const historyForRef = useRef(null); // enrollment whose history is currently shown
+  const enrollmentId = currentEnrollment?.id || null;
   useEffect(() => {
-    if (isOpen && currentEnrollment && chatHistory.length === 0) {
-      (async () => {
-        try {
-          const history = await getChatHistory(currentEnrollment.id);
-          if (history.length > 0) setChatHistory(history);
-        } catch (err) {
-          console.error('Buddy: chat history load failed', err);
-        }
-      })();
+    if (historyForRef.current && historyForRef.current !== enrollmentId) {
+      setChatHistory([]);
+      setQuizAnswers({});
+      historyForRef.current = null;
     }
-  }, [isOpen, currentEnrollment]);
+    if (!isOpen || !enrollmentId || !user || historyForRef.current === enrollmentId) return;
+    historyForRef.current = enrollmentId;
+    (async () => {
+      try {
+        const history = await getChatHistory(enrollmentId, user.uid);
+        // Don't clobber messages the student sent while history was loading
+        if (history.length > 0 && useBuddyStore.getState().chatHistory.length === 0) setChatHistory(history);
+      } catch (err) {
+        console.error('Buddy: chat history load failed', err);
+      }
+    })();
+  }, [isOpen, enrollmentId, user, setChatHistory]);
 
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -229,13 +255,13 @@ const VirtualBuddy = () => {
     const trimmed = text.trim();
     if (!trimmed || loading) return;
 
-    const userMsg = { role: 'user', content: trimmed, timestamp: new Date().toISOString() };
+    const userMsg = newMessage('user', trimmed);
     addMessage(userMsg);
     setMessage('');
     setLoading(true);
 
     try {
-      if (currentEnrollment) saveChatMessage(currentEnrollment.id, userMsg).catch(() => {});
+      if (currentEnrollment && user) saveChatMessage(currentEnrollment.id, user.uid, userMsg).catch(() => {});
 
       const studentContext = {
         courseName:           courseContext?.courseName           || currentEnrollment?.courseName || null,
@@ -254,44 +280,46 @@ const VirtualBuddy = () => {
           studentContext,
           knowledgeRef.current
         );
-        buddyMsg = {
-          role: 'assistant',
-          content: result.response,
-          quiz: result.quiz || null,
-          timestamp: new Date().toISOString(),
-        };
+        buddyMsg = newMessage('assistant', result.response, { quiz: result.quiz?.questions?.length ? result.quiz : null });
       } catch (apiErr) {
         console.warn('[Buddy] API failed. Reason:', apiErr?.message || apiErr);
         // Quiz requests need the AI backend — local extractive search can't generate MCQs
         const isQuizLike = /quiz|test me|ask me|multiple.?choice|practice question|check my understanding/i.test(trimmed);
         if (isQuizLike) {
-          buddyMsg = {
-            role: 'assistant',
-            content: "I need my AI backend to generate quiz questions, but it seems to be temporarily unavailable. Please try again in a moment — it usually comes back quickly!",
-            quiz: null,
-            timestamp: new Date().toISOString(),
-          };
+          buddyMsg = newMessage('assistant', "I need my AI backend to generate quiz questions, but it seems to be temporarily unavailable. Please try again in a moment — it usually comes back quickly!", { quiz: null });
         } else {
           const ragContext = retrieveContext(trimmed, knowledgeRef.current, 8);
           const responseText = await askLocalBuddy(trimmed, ragContext);
-          buddyMsg = { role: 'assistant', content: responseText, quiz: null, timestamp: new Date().toISOString() };
+          buddyMsg = newMessage('assistant', responseText, { quiz: null });
         }
       }
 
       addMessage(buddyMsg);
-      if (currentEnrollment) saveChatMessage(currentEnrollment.id, buddyMsg).catch(() => {});
+      if (currentEnrollment && user) saveChatMessage(currentEnrollment.id, user.uid, buddyMsg).catch(() => {});
     } catch (err) {
       console.error('[Buddy] Unexpected error:', err);
-      addMessage({
-        role: 'assistant',
-        content: 'Something went wrong on my end. Please try refreshing the page, or ask me again!',
-        quiz: null,
-        timestamp: new Date().toISOString(),
-      });
+      addMessage(newMessage('assistant', 'Something went wrong on my end. Please try refreshing the page, or ask me again!', { quiz: null }));
     } finally {
       setLoading(false);
     }
   };
+
+  // Prompts sent from elsewhere (e.g. "Explain it simply" in the course room)
+  useEffect(() => {
+    if (isOpen && pendingPrompt && !loading) {
+      const text = pendingPrompt;
+      clearPendingPrompt();
+      sendMessage(text);
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isOpen, pendingPrompt, loading]);
+
+  useEffect(() => {
+    if (!isOpen) return;
+    const onKey = (e) => { if (e.key === 'Escape') toggleBuddy(); };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [isOpen, toggleBuddy]);
 
   const handleKeyDown = (e) => {
     if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendMessage(message); }
@@ -305,7 +333,9 @@ const VirtualBuddy = () => {
 
   return (
     <div
-      className="fixed bottom-4 right-4 z-50 w-[390px] h-[620px] flex flex-col rounded-2xl overflow-hidden shadow-2xl shadow-black/60 border border-white/10"
+      role="dialog"
+      aria-label="Buddy, your AI tutor"
+      className="fixed inset-0 sm:inset-auto sm:bottom-4 sm:right-4 z-50 sm:w-[400px] sm:h-[min(640px,calc(100dvh-6rem))] flex flex-col sm:rounded-2xl overflow-hidden shadow-2xl shadow-black/60 sm:border border-white/10"
       style={{ background: 'linear-gradient(155deg, #0d0d1c 0%, #110020 60%, #0a0a18 100%)' }}
     >
       {/* ── Header ── */}
@@ -326,13 +356,25 @@ const VirtualBuddy = () => {
             </p>
           </div>
         </div>
-        <button
-          onClick={toggleBuddy}
-          className="w-8 h-8 flex items-center justify-center rounded-lg text-white/60 hover:text-white hover:bg-white/10 transition-colors"
-          aria-label="Close Buddy"
-        >
-          <X size={18} />
-        </button>
+        <div className="flex items-center gap-1">
+          {chatHistory.length > 0 && (
+            <button
+              onClick={() => { setChatHistory([]); setQuizAnswers({}); }}
+              className="w-8 h-8 flex items-center justify-center rounded-lg text-white/60 hover:text-white hover:bg-white/10 transition-colors"
+              aria-label="Start a new chat"
+              title="New chat"
+            >
+              <RotateCcw size={16} />
+            </button>
+          )}
+          <button
+            onClick={toggleBuddy}
+            className="w-8 h-8 flex items-center justify-center rounded-lg text-white/60 hover:text-white hover:bg-white/10 transition-colors"
+            aria-label="Close Buddy"
+          >
+            <X size={18} />
+          </button>
+        </div>
       </div>
 
       {/* ── Messages ── */}
@@ -369,7 +411,7 @@ const VirtualBuddy = () => {
         )}
 
         {chatHistory.map((msg, i) => (
-          <div key={i} className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'} items-end gap-2`}>
+          <div key={msg.id || i} className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'} items-end gap-2`}>
             {msg.role === 'assistant' && (
               <div className="w-6 h-6 rounded-lg bg-purple-600/50 flex items-center justify-center flex-shrink-0 mb-0.5">
                 <Bot size={13} className="text-purple-200" />
@@ -386,14 +428,14 @@ const VirtualBuddy = () => {
                 >
                   {msg.content}
                   <p className="text-[10px] text-white/25 mt-1.5">
-                    {new Date(msg.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                    {formatTime(msg.timestamp)}
                   </p>
                 </div>
                 {/* Interactive quiz */}
                 <QuizCard
                   questions={msg.quiz.questions}
-                  answers={quizAnswers[msg.timestamp] || {}}
-                  onAnswer={(qId, oi) => handleQuizAnswer(msg.timestamp, qId, oi)}
+                  answers={quizAnswers[msg.id || i] || {}}
+                  onAnswer={(qId, oi) => handleQuizAnswer(msg.id || i, qId, oi)}
                 />
               </div>
             ) : (
@@ -408,7 +450,7 @@ const VirtualBuddy = () => {
               >
                 {msg.content}
                 <p className={`text-[10px] mt-1.5 ${msg.role === 'user' ? 'text-blue-200/70 text-right' : 'text-white/25'}`}>
-                  {new Date(msg.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                  {formatTime(msg.timestamp)}
                 </p>
               </div>
             )}

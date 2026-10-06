@@ -1,17 +1,16 @@
 /**
- * OpenAI Service — Virtual Buddy
+ * Virtual Buddy client.
  *
- * The actual OpenAI call happens inside the Netlify Function at
+ * The OpenAI call happens inside the Netlify Function at
  * /.netlify/functions/buddy so the API key never reaches the browser.
  *
  * This module:
  *  1. Runs TF-IDF RAG retrieval client-side (fast, no API needed)
  *  2. POSTs the retrieved context + message to the Netlify Function
- *  3. Returns the tutor's reply
+ *  3. Returns the tutor's reply (and an optional quiz)
  */
 import { retrieveContext } from './ragService.js';
-
-const BUDDY_ENDPOINT = '/.netlify/functions/buddy';
+import { callFunction } from './apiClient.js';
 
 export async function getVirtualBuddyResponse(
   userMessage,
@@ -22,38 +21,20 @@ export async function getVirtualBuddyResponse(
   // RAG retrieval happens here in the browser — no API key needed
   const retrievedContext = retrieveContext(userMessage, knowledgeChunks, 8);
 
-  const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), 20000);
+  const data = await callFunction('buddy', {
+    userMessage,
+    conversationHistory: conversationHistory
+      .slice(-10)
+      .map(({ role, content }) => ({ role, content })),
+    studentContext: {
+      courseName:           studentContext.courseName           || null,
+      currentChapter:       studentContext.currentChapter       || null,
+      currentLesson:        studentContext.currentLesson        || null,
+      currentLessonContent: studentContext.currentLessonContent || null,
+      progressPercentage:   studentContext.progressPercentage   ?? 0,
+    },
+    retrievedContext,
+  }, { timeoutMs: 20000 });
 
-  let res;
-  try {
-    res = await fetch(BUDDY_ENDPOINT, {
-      signal: controller.signal,
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-      userMessage,
-      conversationHistory: conversationHistory.slice(-10),
-      studentContext: {
-        courseName:           studentContext.courseName           || null,
-        currentChapter:       studentContext.currentChapter       || null,
-        currentLesson:        studentContext.currentLesson        || null,
-        currentLessonContent: studentContext.currentLessonContent || null,
-        progressPercentage:   studentContext.progressPercentage   ?? 0,
-      },
-      retrievedContext,
-    }),
-    });
-  } finally {
-    clearTimeout(timer);
-  }
-
-  if (!res.ok) {
-    const err = await res.json().catch(() => ({}));
-    throw new Error(err.error || `Buddy function returned HTTP ${res.status}`);
-  }
-
-  const data = await res.json();
-  // Return both the text response and optional quiz object
   return { response: data.response, quiz: data.quiz || null };
 }

@@ -14,29 +14,14 @@ const Gamification = ({ courseId, enrollmentId }) => {
   });
 
   useEffect(() => {
-    loadGamification();
-  }, [enrollmentId]);
+    if (!user) return;
+    getStudentGamification(user.uid, courseId)
+      .then(data => data && setGamification(data))
+      .catch(error => console.error('Error loading gamification:', error));
+  }, [user, courseId, enrollmentId]);
 
-  const loadGamification = async () => {
-    try {
-      const data = await getStudentGamification(user.uid, courseId);
-      setGamification(data || {
-        level: 1,
-        points: 0,
-        streak: 0,
-        badges: [],
-        achievements: [],
-      });
-    } catch (error) {
-      console.error('Error loading gamification:', error);
-    }
-  };
-
-  const getLevelProgress = () => {
-    const pointsForNextLevel = gamification.level * 100;
-    const currentLevelPoints = gamification.points % 100;
-    return (currentLevelPoints / pointsForNextLevel) * 100;
-  };
+  // Level = floor(points / 100) + 1, so every level is a flat 100 XP
+  const getLevelProgress = () => (gamification.points || 0) % 100;
 
   const badges = [
     { id: 'first_lesson', name: 'First Steps', icon: '🎯', description: 'Complete your first lesson' },
@@ -65,7 +50,7 @@ const Gamification = ({ courseId, enrollmentId }) => {
           />
         </div>
         <p className="text-sm text-blue-100 mt-2">
-          {Math.ceil((gamification.level * 100) - (gamification.points % 100))} XP to next level
+          {100 - ((gamification.points || 0) % 100)} XP to next level
         </p>
       </div>
 

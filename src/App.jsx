@@ -1,4 +1,4 @@
-import { useEffect } from 'react';
+import { useEffect, lazy, Suspense } from 'react';
 import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-dom';
 import { onAuthStateChanged } from 'firebase/auth';
 import { auth } from './config/firebase';
@@ -11,38 +11,43 @@ import 'react-toastify/dist/ReactToastify.css';
 import { ProtectedRoute, PublicRoute } from './components/ProtectedRoute';
 import Loading from './components/Loading';
 
-// Pages
-import Landing from './pages/Landing';
-import Login from './pages/Auth/Login';
-import Register from './pages/Auth/Register';
-import ForgotPassword from './pages/Auth/ForgotPassword';
+// Pages are code-split so students never download admin tooling or seed data
+const Landing = lazy(() => import('./pages/Landing'));
+const Login = lazy(() => import('./pages/Auth/Login'));
+const Register = lazy(() => import('./pages/Auth/Register'));
+const ForgotPassword = lazy(() => import('./pages/Auth/ForgotPassword'));
 
 // Admin Pages
-import AdminDashboard from './pages/Admin/Dashboard';
-import CourseManagement from './pages/Admin/CourseManagement';
-import CreateCourse from './pages/Admin/CreateCourse';
-import EditCourse from './pages/Admin/EditCourse';
-import CourseContent from './pages/Admin/CourseContent';
-import StudentManagement from './pages/Admin/StudentManagement';
-import AddPromptEngineeringCourse from './pages/Admin/AddPromptEngineeringCourse';
-import AddAllCourses from './pages/Admin/AddAllCourses';
+const AdminDashboard = lazy(() => import('./pages/Admin/Dashboard'));
+const CourseManagement = lazy(() => import('./pages/Admin/CourseManagement'));
+const CreateCourse = lazy(() => import('./pages/Admin/CreateCourse'));
+const EditCourse = lazy(() => import('./pages/Admin/EditCourse'));
+const CourseContent = lazy(() => import('./pages/Admin/CourseContent'));
+const StudentManagement = lazy(() => import('./pages/Admin/StudentManagement'));
+const AddPromptEngineeringCourse = lazy(() => import('./pages/Admin/AddPromptEngineeringCourse'));
+const AddAllCourses = lazy(() => import('./pages/Admin/AddAllCourses'));
 
 // Public Pages
-import CoursePreview from './pages/Public/CoursePreview';
+const CoursePreview = lazy(() => import('./pages/Public/CoursePreview'));
+const VerifyCertificate = lazy(() => import('./pages/Public/VerifyCertificate'));
 
 // Student Pages
-import StudentDashboard from './pages/Student/Dashboard';
-import BrowseCourses from './pages/Student/BrowseCourses';
-import CourseDetails from './pages/Student/CourseDetails';
-import Questionnaire from './pages/Student/Questionnaire';
-import EnhancedCourseRoom from './pages/Student/EnhancedCourseRoom';
-import MyProgress from './pages/Student/MyProgress';
-import Certificates from './pages/Student/Certificates';
+const StudentDashboard = lazy(() => import('./pages/Student/Dashboard'));
+const BrowseCourses = lazy(() => import('./pages/Student/BrowseCourses'));
+const CourseDetails = lazy(() => import('./pages/Student/CourseDetails'));
+const Questionnaire = lazy(() => import('./pages/Student/Questionnaire'));
+const EnhancedCourseRoom = lazy(() => import('./pages/Student/EnhancedCourseRoom'));
+const FinalExam = lazy(() => import('./pages/Student/FinalExam'));
+const MyProgress = lazy(() => import('./pages/Student/MyProgress'));
+const Certificates = lazy(() => import('./pages/Student/Certificates'));
 
 function App() {
   const { setUser, setUserData, setLoading } = useAuthStore();
 
   useEffect(() => {
+    // Older builds persisted the Firebase user (incl. tokens) to localStorage
+    try { localStorage.removeItem('auth-storage'); } catch { /* storage unavailable */ }
+
     setLoading(true);
     const unsubscribe = onAuthStateChanged(auth, async (user) => {
       if (user) {
@@ -50,8 +55,11 @@ function App() {
         // Google sign-in users always have emailVerified=true, so they pass through.
         if (user.emailVerified) {
           setUser(user);
-          const userData = await getUserData(user.uid);
-          setUserData(userData);
+          try {
+            setUserData(await getUserData(user.uid));
+          } catch {
+            setUserData(null);
+          }
         } else {
           setUser(null);
           setUserData(null);
@@ -69,6 +77,7 @@ function App() {
   return (
     <Router>
       <div className="App">
+        <Suspense fallback={<Loading />}>
         <Routes>
           {/* Public Routes */}
           <Route path="/" element={<Landing />} />
@@ -97,6 +106,7 @@ function App() {
             }
           />
           <Route path="/courses/:courseId" element={<CoursePreview />} />
+          <Route path="/verify/:certificateId" element={<VerifyCertificate />} />
 
           {/* Admin Routes */}
           <Route
@@ -206,6 +216,14 @@ function App() {
             }
           />
           <Route
+            path="/student/exam/:enrollmentId"
+            element={
+              <ProtectedRoute allowedRoles={['student']}>
+                <FinalExam />
+              </ProtectedRoute>
+            }
+          />
+          <Route
             path="/student/progress"
             element={
               <ProtectedRoute allowedRoles={['student']}>
@@ -225,9 +243,11 @@ function App() {
           {/* 404 */}
           <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>
+        </Suspense>
 
         <ToastContainer
           position="top-right"
+          theme="dark"
           autoClose={3000}
           hideProgressBar={false}
           newestOnTop

@@ -1,1078 +1,677 @@
-import { useEffect, useState, useRef, useCallback } from 'react';
-import { useParams } from 'react-router-dom';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { Link, useNavigate, useParams } from 'react-router-dom';
 import StudentLayout from '../../components/Layout/StudentLayout';
 import StudentNotes from '../../components/StudentNotes';
 import StudentTodoList from '../../components/StudentTodoList';
 import Gamification from '../../components/Gamification';
-import { 
-  getEnrollment, 
-  getCourse, 
+import CourseOutline from '../../components/course/CourseOutline';
+import ChapterQuiz from '../../components/course/ChapterQuiz';
+import LessonSlides from '../../components/course/LessonSlides';
+import FloatingVideoPlayer from '../../components/course/FloatingVideoPlayer';
+import { Blocks } from '../../components/course/Markdown';
+import Loading from '../../components/Loading';
+import {
+  getEnrollment,
+  getCourse,
   getCurriculum,
   updateEnrollmentProgress,
   awardPoints,
   updateStreak,
   awardBadge,
   saveQuizResult,
-  getCoursePptFiles
+  getCoursePptFiles,
 } from '../../services/firestoreService';
-import { generateAdaptiveQuiz } from '../../services/geminiService';
-import { useAuthStore, useBuddyStore } from '../../store';
+import { generateAdaptiveQuiz } from '../../services/aiService';
+import { parseBlocks, headingsOf, estimateMinutes } from '../../utils/markdown';
+import { useAuthStore, useBuddyStore, useEnrollmentStore } from '../../store';
 import { toast } from 'react-toastify';
-import { 
-  BookOpen, CheckCircle, Lock, Play, ChevronLeft, ChevronRight,
-  Clock, Brain, FileText, Target, TrendingUp, Award, MessageCircle,
-  Download, ExternalLink, Video, File, Lightbulb, ArrowRight,
-  List, X, Menu, Youtube, Minus
+import {
+  ArrowLeft, ArrowRight, Award, BookOpen, Brain, CheckCircle2, ChevronLeft, ChevronRight,
+  Clock, Download, File, FileText, GraduationCap, HelpCircle, List, MessageCircle,
+  PartyPopper, Presentation, Sparkles, Target, Trophy, X, Youtube,
 } from 'lucide-react';
 
-// Inline markdown renderer — converts **bold**, *italic*, `code` to JSX
-const renderInline = (text) => {
-  const parts = [];
-  // Split on bold, italic, inline-code markers
-  const regex = /(\*\*.*?\*\*|\*.*?\*|`.*?`)/g;
-  let lastIndex = 0;
-  let match;
-  let key = 0;
-  while ((match = regex.exec(text)) !== null) {
-    if (match.index > lastIndex) {
-      parts.push(text.slice(lastIndex, match.index));
-    }
-    const token = match[0];
-    if (token.startsWith('**')) {
-      parts.push(<strong key={key++} className="text-white font-semibold">{token.slice(2, -2)}</strong>);
-    } else if (token.startsWith('`')) {
-      parts.push(<code key={key++} className="px-1.5 py-0.5 bg-white/10 text-purple-300 rounded text-sm font-mono">{token.slice(1, -1)}</code>);
-    } else {
-      parts.push(<em key={key++} className="italic text-gray-300">{token.slice(1, -1)}</em>);
-    }
-    lastIndex = match.index + token.length;
-  }
-  if (lastIndex < text.length) parts.push(text.slice(lastIndex));
-  return parts.length === 1 && typeof parts[0] === 'string' ? parts[0] : parts;
-};
+const MODE_KEY = 'iv_lesson_mode';
+const lessonKey = (chapter, lesson) => `${chapter.id}_${lesson.id}`;
 
-// Presentation Renderer Component
-const PresentationRenderer = ({ content }) => {
-  const [currentSlide, setCurrentSlide] = useState(0);
-  const [touchStartX, setTouchStartX] = useState(null);
-  
-  // Reset to first slide whenever the lesson content changes
-  useEffect(() => {
-    setCurrentSlide(0);
-  }, [content]);
+const isTyping = (el) =>
+  el && (el.tagName === 'INPUT' || el.tagName === 'TEXTAREA' || el.tagName === 'SELECT' || el.isContentEditable);
 
-  // Keyboard navigation
-  useEffect(() => {
-    const handleKeyPress = (e) => {
-      if (e.key === 'ArrowRight') nextSlide();
-      else if (e.key === 'ArrowLeft') prevSlide();
-    };
-    window.addEventListener('keydown', handleKeyPress);
-    return () => window.removeEventListener('keydown', handleKeyPress);
-  }, [currentSlide]);
-  
-  // Parse markdown-style content into slides
-  const parseContentToSlides = (text) => {
-    const slides = [];
-    const lines = text.split('\n');
-    let currentSlideContent = { title: '', content: [] };
-
-    // Strip raw markdown formatting for headings only
-    const cleanHeading = (str) => str
-      .replace(/\*\*(.*?)\*\*/g, '$1')
-      .replace(/\*(.*?)\*/g, '$1')
-      .replace(/`(.*?)`/g, '$1')
-      .trim();
-
-    let inCodeBlock = false;
-    let codeLines = [];
-    let codeLang = '';
-    let tableRows = [];
-
-    const flushTable = () => {
-      if (tableRows.length === 0) return;
-      // Filter out pure separator rows (e.g. |---|---|)
-      const filtered = tableRows.filter(row => !row.every(cell => /^[-:\s]+$/.test(cell)));
-      if (filtered.length > 0) {
-        currentSlideContent.content.push({ type: 'table', rows: filtered });
-      }
-      tableRows = [];
-    };
-
-    for (let i = 0; i < lines.length; i++) {
-      const rawLine = lines[i];
-      const line = rawLine.trim();
-
-      // ── Code block handling ──────────────────────────────────────────
-      if (line.startsWith('```')) {
-        if (!inCodeBlock) {
-          flushTable();
-          inCodeBlock = true;
-          codeLang = line.slice(3).trim();
-          codeLines = [];
-        } else {
-          inCodeBlock = false;
-          currentSlideContent.content.push({ type: 'code', language: codeLang, lines: codeLines });
-          codeLines = [];
-          codeLang = '';
-        }
-        continue;
-      }
-      if (inCodeBlock) {
-        codeLines.push(rawLine); // preserve original indentation
-        continue;
-      }
-
-      // ── Table row handling ───────────────────────────────────────────
-      if (line.startsWith('|')) {
-        const cells = line.split('|').map(c => c.trim()).filter((_, idx, arr) => idx !== 0 && idx !== arr.length - 1);
-        tableRows.push(cells);
-        continue;
-      } else {
-        flushTable();
-      }
-
-      // ── Headings ────────────────────────────────────────────────────
-      // Main heading (# ) creates new slide
-      if (line.startsWith('# ') && !line.startsWith('## ')) {
-        if (currentSlideContent.title || currentSlideContent.content.length > 0) {
-          slides.push({ ...currentSlideContent });
-        }
-        currentSlideContent = { 
-          title: cleanHeading(line.replace(/^#\s+/, '')), 
-          content: [],
-          type: 'title'
-        };
-      }
-      // Subheading (## ) creates content section
-      else if (line.startsWith('## ')) {
-        if (currentSlideContent.title && currentSlideContent.content.length > 0) {
-          slides.push({ ...currentSlideContent });
-          currentSlideContent = { title: '', content: [], type: 'content' };
-        }
-        currentSlideContent.title = cleanHeading(line.replace(/^##\s+/, ''));
-        currentSlideContent.type = 'content';
-      }
-      // Sub-subheading (### ) — render as a labelled section divider
-      else if (line.startsWith('### ')) {
-        currentSlideContent.content.push({
-          type: 'subheading',
-          text: cleanHeading(line.replace(/^###\s+/, ''))
-        });
-      }
-      // List items
-      else if (line.startsWith('- ') || line.startsWith('* ')) {
-        currentSlideContent.content.push({
-          type: 'bullet',
-          text: line.replace(/^[-*]\s+/, '')
-        });
-      }
-      // Numbered lists
-      else if (/^\d+\.\s/.test(line)) {
-        currentSlideContent.content.push({
-          type: 'numbered',
-          text: line.replace(/^\d+\.\s+/, '')
-        });
-      }
-      // Regular paragraphs
-      else if (line.length > 0) {
-        currentSlideContent.content.push({
-          type: 'paragraph',
-          text: line
-        });
-      }
-    }
-
-    // Flush any trailing table or code block
-    flushTable();
-    if (inCodeBlock && codeLines.length > 0) {
-      currentSlideContent.content.push({ type: 'code', language: codeLang, lines: codeLines });
-    }
-    // Add the last slide
-    if (currentSlideContent.title || currentSlideContent.content.length > 0) {
-      slides.push(currentSlideContent);
-    }
-    
-    return slides.length > 0 ? slides : [{ title: 'Content', content: [{ type: 'paragraph', text: content }], type: 'content' }];
-  };
-
-  const slides = parseContentToSlides(content);
-  const totalSlides = slides.length;
-  // Clamp index in case it's stale from a previous lesson
-  const safeIndex = Math.min(currentSlide, totalSlides - 1);
-  const slide = slides[safeIndex];
-
-  const nextSlide = () => {
-    if (currentSlide < totalSlides - 1) {
-      setCurrentSlide(currentSlide + 1);
-    }
-  };
-
-  const prevSlide = () => {
-    if (currentSlide > 0) {
-      setCurrentSlide(currentSlide - 1);
-    }
-  };
-
-  const goToSlide = (index) => {
-    setCurrentSlide(index);
-  };
-
-  // Touch swipe handlers
-  const handleTouchStart = (e) => {
-    setTouchStartX(e.touches[0].clientX);
-  };
-  const handleTouchEnd = (e) => {
-    if (touchStartX === null) return;
-    const diff = touchStartX - e.changedTouches[0].clientX;
-    if (Math.abs(diff) > 40) {
-      if (diff > 0) nextSlide(); else prevSlide();
-    }
-    setTouchStartX(null);
-  };
-
-  // Capped dot pagination: show max 7 dots with current always visible
-  const MAX_DOTS = 7;
-  const getDotIndices = () => {
-    if (totalSlides <= MAX_DOTS) return Array.from({ length: totalSlides }, (_, i) => i);
-    const half = Math.floor(MAX_DOTS / 2);
-    let start = Math.max(0, currentSlide - half);
-    let end = start + MAX_DOTS - 1;
-    if (end >= totalSlides) { end = totalSlides - 1; start = Math.max(0, end - MAX_DOTS + 1); }
-    return Array.from({ length: end - start + 1 }, (_, i) => start + i);
-  };
-
-  return (
-    <div className="space-y-3 sm:space-y-4">
-      {/* Main Slide Display */}
-      <div
-        className="relative bg-gradient-to-br from-slate-900 via-purple-900/20 to-slate-900 rounded-xl sm:rounded-2xl border-2 border-purple-500/30 overflow-hidden min-h-[280px] sm:min-h-[400px] lg:min-h-[500px] shadow-2xl select-none"
-        onTouchStart={handleTouchStart}
-        onTouchEnd={handleTouchEnd}
-      >
-        {/* Decorative Elements */}
-        <div className="absolute top-0 left-0 w-full h-1 bg-gradient-to-r from-blue-500 via-purple-500 to-pink-500"></div>
-        <div className="absolute top-0 right-0 w-40 sm:w-64 h-40 sm:h-64 bg-purple-500/10 rounded-full blur-3xl"></div>
-        <div className="absolute bottom-0 left-0 w-40 sm:w-64 h-40 sm:h-64 bg-blue-500/10 rounded-full blur-3xl"></div>
-        
-        {/* Slide Content */}
-        <div className="relative z-10 p-4 sm:p-8 lg:p-12 min-h-[280px] sm:min-h-[400px] lg:min-h-[500px] flex flex-col justify-center">
-          {slide.type === 'title' ? (
-            // Title Slide
-            <div className="text-center">
-              <div className="mb-4">
-                <Lightbulb className="mx-auto text-yellow-400 animate-pulse" size={40} />
-              </div>
-              <h1 className="text-2xl sm:text-4xl lg:text-5xl font-extrabold text-white mb-4 leading-tight">
-                {slide.title}
-              </h1>
-              {slide.content.length > 0 && (
-                <div className="space-y-3 max-w-3xl mx-auto">
-                  {slide.content.map((item, idx) => (
-                    <p key={idx} className="text-sm sm:text-lg lg:text-xl text-gray-300 leading-relaxed">
-                      {renderInline(item.text)}
-                    </p>
-                  ))}
-                </div>
-              )}
-            </div>
-          ) : (
-            // Content Slide
-            <div>
-              <h2 className="text-xl sm:text-3xl lg:text-4xl font-bold text-white mb-4 sm:mb-8 border-b-4 border-purple-500 pb-2 sm:pb-4 inline-block">
-                {slide.title}
-              </h2>
-              <div className="space-y-2 sm:space-y-4 mt-4 sm:mt-8">
-                {slide.content.map((item, idx) => (
-                  <div 
-                    key={idx} 
-                    className={`animate-fade-in ${
-                      item.type === 'code' || item.type === 'table'
-                        ? ''
-                        : item.type === 'subheading'
-                        ? 'pt-1.5 sm:pt-2'
-                        : 'flex items-start gap-2 sm:gap-4 p-2.5 sm:p-4 bg-white/5 backdrop-blur-sm rounded-lg sm:rounded-xl border border-white/10'
-                    }`}
-                    style={{ animationDelay: `${idx * 0.05}s` }}
-                  >
-                    {/* Bullet */}
-                    {item.type === 'bullet' && (
-                      <>
-                        <div className="flex-shrink-0 w-2 h-2 sm:w-3 sm:h-3 bg-gradient-to-r from-blue-500 to-purple-500 rounded-full mt-1.5 sm:mt-2"></div>
-                        <p className="text-sm sm:text-xl text-gray-200 leading-relaxed flex-1">{renderInline(item.text)}</p>
-                      </>
-                    )}
-                    {/* Numbered */}
-                    {item.type === 'numbered' && (
-                      <>
-                        <div className="flex-shrink-0 w-6 h-6 sm:w-8 sm:h-8 bg-gradient-to-r from-purple-500 to-pink-500 rounded-full flex items-center justify-center font-bold text-white text-xs sm:text-sm">
-                          {idx + 1}
-                        </div>
-                        <p className="text-sm sm:text-xl text-gray-200 leading-relaxed flex-1">{renderInline(item.text)}</p>
-                      </>
-                    )}
-                    {/* Paragraph */}
-                    {item.type === 'paragraph' && (
-                      <p className="text-sm sm:text-xl text-gray-200 leading-relaxed">{renderInline(item.text)}</p>
-                    )}
-                    {/* Sub-subheading (###) */}
-                    {item.type === 'subheading' && (
-                      <h3 className="text-base sm:text-2xl font-semibold text-purple-300 border-l-4 border-purple-500 pl-3 sm:pl-4 py-1">
-                        {item.text}
-                      </h3>
-                    )}
-                    {/* Code block */}
-                    {item.type === 'code' && (
-                      <div className="w-full rounded-lg sm:rounded-xl overflow-hidden border border-white/10">
-                        <div className="flex items-center gap-2 px-3 py-1.5 bg-gray-800/90 border-b border-white/10">
-                          <div className="flex gap-1.5">
-                            <div className="w-2.5 h-2.5 rounded-full bg-red-500/80"></div>
-                            <div className="w-2.5 h-2.5 rounded-full bg-yellow-500/80"></div>
-                            <div className="w-2.5 h-2.5 rounded-full bg-green-500/80"></div>
-                          </div>
-                          {item.language && (
-                            <span className="text-xs text-gray-400 font-mono ml-1 uppercase tracking-wide">{item.language}</span>
-                          )}
-                        </div>
-                        <pre className="bg-gray-950/90 p-3 sm:p-4 overflow-x-auto max-h-52 sm:max-h-72">
-                          <code className="text-green-300 text-xs sm:text-sm font-mono leading-relaxed whitespace-pre">
-                            {item.lines.join('\n')}
-                          </code>
-                        </pre>
-                      </div>
-                    )}
-                    {/* Markdown table */}
-                    {item.type === 'table' && (
-                      <div className="w-full overflow-x-auto rounded-lg sm:rounded-xl border border-white/10">
-                        <table className="w-full">
-                          <tbody>
-                            {item.rows.map((row, rowIdx) => (
-                              <tr key={rowIdx} className={rowIdx === 0 ? 'bg-purple-500/25' : rowIdx % 2 === 0 ? 'bg-white/5' : ''}>
-                                {row.map((cell, cellIdx) => (
-                                  rowIdx === 0
-                                    ? <th key={cellIdx} className="px-3 py-2 sm:px-4 sm:py-3 text-left text-xs sm:text-sm font-semibold text-purple-200 border-b border-white/10">{renderInline(cell)}</th>
-                                    : <td key={cellIdx} className="px-3 py-2 sm:px-4 sm:py-3 text-xs sm:text-sm text-gray-200 border-b border-white/5">{renderInline(cell)}</td>
-                                ))}
-                              </tr>
-                            ))}
-                          </tbody>
-                        </table>
-                      </div>
-                    )}
-                  </div>
-                ))}
-              </div>
-            </div>
-          )}
-        </div>
-
-        {/* Slide counter badge */}
-        <div className="absolute bottom-3 right-3 px-3 py-1 bg-white/10 backdrop-blur-md rounded-full border border-white/20">
-          <span className="text-white text-xs sm:text-sm font-semibold">{currentSlide + 1} / {totalSlides}</span>
-        </div>
-      </div>
-
-      {/* Navigation Controls */}
-      <div className="flex items-center justify-between gap-2">
-        <button
-          onClick={prevSlide}
-          disabled={currentSlide === 0}
-          className="flex items-center gap-1.5 px-3 sm:px-6 py-2.5 sm:py-3 bg-white/10 hover:bg-white/20 text-white rounded-xl transition-all disabled:opacity-30 disabled:cursor-not-allowed text-sm"
-        >
-          <ChevronLeft size={18} />
-          <span className="hidden sm:inline">Previous</span>
-        </button>
-
-        {/* Capped dot pagination */}
-        <div className="flex gap-1.5 items-center">
-          {getDotIndices()[0] > 0 && <span className="text-gray-500 text-xs">&#8230;</span>}
-          {getDotIndices().map((idx) => (
-            <button
-              key={idx}
-              onClick={() => goToSlide(idx)}
-              className={`rounded-full transition-all ${
-                idx === currentSlide 
-                  ? 'bg-gradient-to-r from-blue-500 to-purple-500 w-6 h-2.5' 
-                  : 'w-2.5 h-2.5 bg-white/20 hover:bg-white/40'
-              }`}
-              aria-label={`Go to slide ${idx + 1}`}
-            />
-          ))}
-          {getDotIndices()[getDotIndices().length - 1] < totalSlides - 1 && <span className="text-gray-500 text-xs">&#8230;</span>}
-        </div>
-
-        <button
-          onClick={nextSlide}
-          disabled={currentSlide === totalSlides - 1}
-          className="flex items-center gap-1.5 px-3 sm:px-6 py-2.5 sm:py-3 bg-gradient-to-r from-blue-600 to-purple-600 hover:from-blue-500 hover:to-purple-500 text-white rounded-xl transition-all disabled:opacity-30 disabled:cursor-not-allowed shadow-lg text-sm"
-        >
-          <span className="hidden sm:inline">Next</span>
-          <ChevronRight size={18} />
-        </button>
-      </div>
-
-      {/* Keyboard hint — desktop only */}
-      <div className="hidden sm:block text-center text-sm text-gray-400">
-        <p>Tip: Use arrow keys to navigate slides</p>
-      </div>
-    </div>
-  );
-};
-
-// Load the YouTube IFrame API script once
-const ensureYouTubeAPI = () => {
-  if (window.YT?.Player || document.getElementById('yt-api-script')) return;
-  const tag = document.createElement('script');
-  tag.id = 'yt-api-script';
-  tag.src = 'https://www.youtube.com/iframe_api';
-  document.head.appendChild(tag);
-};
-
-const extractVideoId = (rawUrl) => {
+const youtubeEmbedUrl = (rawUrl) => {
   try {
     const u = new URL(rawUrl);
-    return u.searchParams.get('v') || u.pathname.replace(/^\/(shorts\/)?/, '').split('/')[0];
+    const id = u.searchParams.get('v') || u.pathname.replace(/^\/(shorts\/|embed\/)?/, '').split('/')[0];
+    return id ? `https://www.youtube.com/embed/${id}` : null;
   } catch {
     return null;
   }
 };
 
-// Floating YouTube Video Player — saves watch position to localStorage
-const FloatingVideoPlayer = ({ url, title, lessonId, userId, onClose }) => {
-  const [minimised, setMinimised] = useState(false);
-  const divRef = useRef(null);
-  const playerRef = useRef(null);
-  const saveTimerRef = useRef(null);
-  const storageKey = `vp_${userId}_${lessonId}`;
-
-  const getSavedTime = () => {
-    try { return parseInt(localStorage.getItem(storageKey) || '0', 10); } catch { return 0; }
-  };
-
-  const saveCurrentTime = useCallback(() => {
-    try {
-      if (playerRef.current?.getCurrentTime) {
-        localStorage.setItem(storageKey, String(Math.floor(playerRef.current.getCurrentTime())));
-      }
-    } catch { /* ignore */ }
-  }, [storageKey]);
-
-  const initPlayer = useCallback(() => {
-    if (!divRef.current || !window.YT?.Player) return;
-    const videoId = extractVideoId(url);
-    if (!videoId) return;
-    playerRef.current = new window.YT.Player(divRef.current, {
-      videoId,
-      playerVars: { autoplay: 1, start: getSavedTime(), rel: 0 },
-      events: {
-        onStateChange: ({ data }) => {
-          clearInterval(saveTimerRef.current);
-          if (data === window.YT.PlayerState.PLAYING) {
-            saveTimerRef.current = setInterval(saveCurrentTime, 5000);
-          } else {
-            saveCurrentTime();
-          }
-        },
-      },
-    });
-  }, [url, saveCurrentTime]);
-
-  useEffect(() => {
-    ensureYouTubeAPI();
-    if (window.YT?.Player) {
-      initPlayer();
-    } else {
-      const prev = window.onYouTubeIframeAPIReady;
-      window.onYouTubeIframeAPIReady = () => {
-        prev?.();
-        initPlayer();
-      };
+// Resume at the saved position, else the first unfinished lesson
+function initialPosition(chapters, enrollment) {
+  const last = enrollment.lastPosition;
+  if (last) {
+    const ci = chapters.findIndex(c => c.id === last.chapterId);
+    const li = ci >= 0 ? (chapters[ci].lessons || []).findIndex(l => l.id === last.lessonId) : -1;
+    if (ci >= 0 && li >= 0) return { ci, li };
+  }
+  const done = new Set(enrollment.completedLessons || []);
+  for (let ci = 0; ci < chapters.length; ci++) {
+    const lessons = chapters[ci].lessons || [];
+    for (let li = 0; li < lessons.length; li++) {
+      if (!done.has(lessonKey(chapters[ci], lessons[li]))) return { ci, li };
     }
-    return () => {
-      clearInterval(saveTimerRef.current);
-      saveCurrentTime();
-      playerRef.current?.destroy?.();
-    };
-  }, [initPlayer, saveCurrentTime]);
-
-  return (
-    <div
-      className={`fixed z-50 shadow-2xl rounded-2xl overflow-hidden border border-white/20 bg-[#0d1117] transition-all duration-300 ${
-        minimised
-          ? 'bottom-4 right-4 w-64 h-12'
-          : 'bottom-4 right-4 w-80 sm:w-[480px]'
-      }`}
-      style={{ boxShadow: '0 0 40px rgba(0,0,0,0.7)' }}
-    >
-      {/* Title bar */}
-      <div className="flex items-center gap-2 px-3 py-2.5 bg-white/5 border-b border-white/10">
-        <Youtube size={16} className="text-red-400 flex-shrink-0" />
-        <span className="flex-1 text-xs text-white font-medium truncate">{title || 'Video'}</span>
-        <button
-          onClick={() => setMinimised(m => !m)}
-          className="p-1 rounded hover:bg-white/10 text-gray-400 hover:text-white transition-colors"
-          title={minimised ? 'Restore' : 'Minimise'}
-        >
-          <Minus size={14} />
-        </button>
-        <button
-          onClick={() => { saveCurrentTime(); onClose(); }}
-          className="p-1 rounded hover:bg-white/10 text-gray-400 hover:text-white transition-colors"
-          title="Close"
-        >
-          <X size={14} />
-        </button>
-      </div>
-
-      {/* Player container — always mounted so video keeps running when minimised */}
-      <div className={minimised ? 'hidden' : 'aspect-video'}>
-        <div ref={divRef} className="w-full h-full" />
-      </div>
-    </div>
-  );
-};
+  }
+  return { ci: 0, li: 0 };
+}
 
 const EnhancedCourseRoom = () => {
   const { enrollmentId } = useParams();
+  const navigate = useNavigate();
   const { user } = useAuthStore();
-  const { toggleBuddy, setCourseContext } = useBuddyStore();
-  
+  const { toggleBuddy, askBuddy, setCourseContext } = useBuddyStore();
+  const { setCurrentEnrollment } = useEnrollmentStore();
+
   const [enrollment, setEnrollment] = useState(null);
   const [course, setCourse] = useState(null);
   const [curriculum, setCurriculum] = useState(null);
-  const [chapters, setChapters] = useState([]);
-  const [currentChapterIndex, setCurrentChapterIndex] = useState(0);
-  const [currentLessonIndex, setCurrentLessonIndex] = useState(0);
-  const [showQuiz, setShowQuiz] = useState(false);
-  const [quiz, setQuiz] = useState(null);
-  const [quizAnswers, setQuizAnswers] = useState({});
-  const [loading, setLoading] = useState(true);
-  const [quizLoading, setQuizLoading] = useState(false);
-  const [activeTab, setActiveTab] = useState('content'); // content, notes, todo, gamification, resources
-  const [showChapterDrawer, setShowChapterDrawer] = useState(false);
   const [pptFiles, setPptFiles] = useState([]);
-  const [videoPlayer, setVideoPlayer] = useState(null); // { url, title } | null
+  const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState(false);
 
+  const [position, setPosition] = useState({ ci: 0, li: 0 });
+  const [view, setView] = useState('lesson');         // 'lesson' | 'quiz' | 'milestone'
+  const [milestone, setMilestone] = useState(null);    // { type: 'chapter', ci } | { type: 'course' }
+  const [quiz, setQuiz] = useState(null);              // { ci, questions }
+  const [quizLoading, setQuizLoading] = useState(false);
+  const [tab, setTab] = useState('lesson');
+  const [mode, setMode] = useState(() => {
+    try { return localStorage.getItem(MODE_KEY) || 'read'; } catch { return 'read'; }
+  });
+  const [outlineOpen, setOutlineOpen] = useState(false);
+  const [videoPlayer, setVideoPlayer] = useState(null);
+  const [completing, setCompleting] = useState(false);
+  const [readProgress, setReadProgress] = useState(0);
+
+  const articleRef = useRef(null);
+  const savedPositionRef = useRef(null);
+
+  // ── Load ───────────────────────────────────────────────────────────────────
   useEffect(() => {
-    loadCourseData();
-  }, [enrollmentId]);
+    if (!user) return;
+    let cancelled = false;
 
-  const loadCourseData = async () => {
-    try {
-      const enrollmentData = await getEnrollment(enrollmentId);
-      setEnrollment(enrollmentData);
+    (async () => {
+      try {
+        const enrollmentData = await getEnrollment(enrollmentId);
+        if (!enrollmentData || enrollmentData.studentId !== user.uid) throw new Error('Enrollment not found');
+        const courseData = await getCourse(enrollmentData.courseId);
+        if (!courseData) throw new Error('Course not found');
+        if (cancelled) return;
 
-      const courseData = await getCourse(enrollmentData.courseId);
-      setCourse(courseData);
+        setEnrollment(enrollmentData);
+        setCourse(courseData);
+        setPosition(initialPosition(courseData.chapters || [], enrollmentData));
+        savedPositionRef.current = enrollmentData.lastPosition || null;
+        setCurrentEnrollment({ ...enrollmentData, courseName: courseData.title });
 
-      // Load course PPT/PDF resources
-      const files = await getCoursePptFiles(enrollmentData.courseId);
-      setPptFiles(files);
-
-      // Load chapters from course content
-      if (courseData.chapters && courseData.chapters.length > 0) {
-        setChapters(courseData.chapters);
+        // Non-critical extras load in the background
+        getCoursePptFiles(enrollmentData.courseId).then(f => !cancelled && setPptFiles(f)).catch(() => {});
+        getCurriculum(enrollmentId).then(c => !cancelled && setCurriculum(c?.curriculum || null)).catch(() => {});
+        updateStreak(user.uid, enrollmentData.courseId).catch(() => {});
+      } catch (error) {
+        console.error('Error loading course:', error);
+        if (!cancelled) setLoadError(true);
+      } finally {
+        if (!cancelled) setLoading(false);
       }
+    })();
 
-      // Also load AI curriculum if available
-      const curriculumData = await getCurriculum(enrollmentId);
-      setCurriculum(curriculumData?.curriculum);
+    return () => { cancelled = true; };
+  }, [enrollmentId, user, setCurrentEnrollment]);
 
-      // Update streak
-      await updateStreak(user.uid, enrollmentData.courseId);
+  useEffect(() => () => setCurrentEnrollment(null), [setCurrentEnrollment]);
 
-    } catch (error) {
-      console.error('Error loading course:', error);
-      toast.error('Failed to load course');
-    } finally {
-      setLoading(false);
-    }
-  };
+  // ── Derived state ──────────────────────────────────────────────────────────
+  const chapters = useMemo(() => course?.chapters || [], [course]);
+  const currentChapter = chapters[position.ci];
+  const currentLesson = currentChapter?.lessons?.[position.li];
 
-  const currentChapter = chapters[currentChapterIndex];
-  const currentLesson = currentChapter?.lessons?.[currentLessonIndex];
-  const totalLessons = chapters.reduce((sum, ch) => sum + (ch.lessons?.length || 0), 0);
-  const completedLessons = enrollment?.completedLessons?.length || 0;
-  const progressPercentage = totalLessons > 0 ? (completedLessons / totalLessons) * 100 : 0;
+  const completedSet = useMemo(() => new Set(enrollment?.completedLessons || []), [enrollment]);
+  const isLessonCompleted = useCallback(
+    (chapterId, lessonId) => completedSet.has(`${chapterId}_${lessonId}`),
+    [completedSet]
+  );
 
-  // Keep Buddy in sync with whatever lesson the student is currently viewing
+  const allLessonKeys = useMemo(
+    () => chapters.flatMap(ch => (ch.lessons || []).map(l => lessonKey(ch, l))),
+    [chapters]
+  );
+  const totalLessons = allLessonKeys.length;
+  const completedCount = allLessonKeys.filter(k => completedSet.has(k)).length;
+  const progressPct = totalLessons ? Math.round((completedCount / totalLessons) * 100) : 0;
+  const remainingLessons = totalLessons - completedCount;
+  const hasExamQuestions = chapters.some(ch => ch.quiz?.questions?.length);
+
+  const bestQuizScore = useCallback((chapterId) => {
+    const scores = (enrollment?.quizResults || []).filter(r => r.moduleId === chapterId).map(r => r.score);
+    return scores.length ? Math.round(Math.max(...scores)) : null;
+  }, [enrollment]);
+
+  const blocks = useMemo(() => parseBlocks(currentLesson?.content || ''), [currentLesson]);
+  const readingBlocks = useMemo(
+    () => (blocks[0]?.type === 'heading' && blocks[0].level === 1 ? blocks.slice(1) : blocks),
+    [blocks]
+  );
+  const sections = useMemo(() => headingsOf(readingBlocks), [readingBlocks]);
+  const isFirstLesson = position.ci === 0 && position.li === 0;
+  const isLastLesson = position.ci === chapters.length - 1 && position.li === (currentChapter?.lessons?.length || 1) - 1;
+  const currentDone = currentChapter && currentLesson ? isLessonCompleted(currentChapter.id, currentLesson.id) : false;
+
+  // ── Keep Buddy in sync with the lesson on screen ───────────────────────────
   useEffect(() => {
     if (course && currentChapter && currentLesson) {
       setCourseContext({
         courseName: course.title,
         currentChapter: currentChapter.title,
         currentLesson: currentLesson.title,
-        currentLessonContent: currentLesson.content
-          ? currentLesson.content.slice(0, 1200)
-          : null,
-        progressPercentage: Math.round(progressPercentage),
+        currentLessonContent: currentLesson.content ? currentLesson.content.slice(0, 1200) : null,
+        progressPercentage: progressPct,
       });
     }
-  }, [course, currentChapterIndex, currentLessonIndex]);
+  }, [course, currentChapter, currentLesson, progressPct, setCourseContext]);
 
-  const markLessonComplete = async () => {
-    try {
-      const lessonId = `${currentChapter.id}_${currentLesson.id}`;
-      const newCompletedLessons = [...(enrollment.completedLessons || []), lessonId];
-      
-      await updateEnrollmentProgress(enrollmentId, {
-        completedLessons: newCompletedLessons,
-        progress: (newCompletedLessons.length / totalLessons) * 100,
-      });
+  // ── Remember where the student is (debounced) ──────────────────────────────
+  useEffect(() => {
+    if (!enrollment || !currentChapter || !currentLesson) return;
+    const next = { chapterId: currentChapter.id, lessonId: currentLesson.id };
+    const saved = savedPositionRef.current;
+    if (saved?.chapterId === next.chapterId && saved?.lessonId === next.lessonId) return;
 
-      // Award points
-      await awardPoints(
-        user.uid,
-        course.id,
-        10,
-        'Lesson Completed',
-        `Finished: ${currentLesson.title}`
-      );
+    const timer = setTimeout(() => {
+      savedPositionRef.current = next;
+      updateEnrollmentProgress(enrollmentId, { lastPosition: next, lastAccessedAt: new Date().toISOString() })
+        .catch(() => { savedPositionRef.current = saved; });
+    }, 1500);
+    return () => clearTimeout(timer);
+  }, [enrollment, currentChapter, currentLesson, enrollmentId]);
 
-      // Check for first lesson badge
-      if (newCompletedLessons.length === 1) {
-        await awardBadge(user.uid, course.id, 'first_lesson');
+  // ── Reading progress for long lessons ──────────────────────────────────────
+  useEffect(() => {
+    if (mode !== 'read' || view !== 'lesson' || tab !== 'lesson') return;
+    const onScroll = () => {
+      const el = articleRef.current;
+      if (!el) return;
+      const rect = el.getBoundingClientRect();
+      const visible = window.innerHeight - rect.top;
+      setReadProgress(Math.max(0, Math.min(1, visible / Math.max(rect.height, 1))));
+    };
+    onScroll();
+    window.addEventListener('scroll', onScroll, { passive: true });
+    return () => window.removeEventListener('scroll', onScroll);
+  }, [mode, view, tab, position]);
+
+  // ── Navigation ─────────────────────────────────────────────────────────────
+  const goTo = useCallback((ci, li) => {
+    setPosition({ ci, li });
+    setView('lesson');
+    setMilestone(null);
+    setTab('lesson');
+    setOutlineOpen(false);
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+  }, []);
+
+  const goNext = useCallback(() => {
+    const { ci, li } = position;
+    if (li < (chapters[ci]?.lessons?.length || 0) - 1) goTo(ci, li + 1);
+    else if (ci < chapters.length - 1) goTo(ci + 1, 0);
+  }, [position, chapters, goTo]);
+
+  const goPrev = useCallback(() => {
+    const { ci, li } = position;
+    if (li > 0) goTo(ci, li - 1);
+    else if (ci > 0) goTo(ci - 1, Math.max((chapters[ci - 1].lessons?.length || 1) - 1, 0));
+  }, [position, chapters, goTo]);
+
+  const firstIncomplete = useCallback(() => {
+    for (let ci = 0; ci < chapters.length; ci++) {
+      const lessons = chapters[ci].lessons || [];
+      for (let li = 0; li < lessons.length; li++) {
+        if (!completedSet.has(lessonKey(chapters[ci], lessons[li]))) return { ci, li };
       }
+    }
+    return null;
+  }, [chapters, completedSet]);
 
-      toast.success('Lesson completed! +10 XP');
-      await loadCourseData();
-      
-      // Move to next lesson
-      handleNextLesson();
+  // Arrow keys move between lessons in reading mode (slides use them for slides)
+  useEffect(() => {
+    if (mode !== 'read' || view !== 'lesson' || tab !== 'lesson') return;
+    const onKey = (e) => {
+      if (isTyping(document.activeElement) || e.metaKey || e.ctrlKey || e.altKey) return;
+      if (e.key === 'ArrowRight') goNext();
+      if (e.key === 'ArrowLeft') goPrev();
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [mode, view, tab, goNext, goPrev]);
+
+  const changeMode = (next) => {
+    setMode(next);
+    try { localStorage.setItem(MODE_KEY, next); } catch { /* ignore */ }
+  };
+
+  // ── Lesson completion ──────────────────────────────────────────────────────
+  const markComplete = async () => {
+    if (!currentChapter || !currentLesson || completing) return;
+    if (currentDone) { goNext(); return; }
+
+    const key = lessonKey(currentChapter, currentLesson);
+    const updated = [...(enrollment.completedLessons || []).filter(k => k !== key), key];
+    const progress = totalLessons ? Math.round((updated.filter(k => allLessonKeys.includes(k)).length / totalLessons) * 100) : 0;
+
+    setCompleting(true);
+    try {
+      await updateEnrollmentProgress(enrollmentId, { completedLessons: updated, progress });
+      setEnrollment(prev => ({ ...prev, completedLessons: updated, progress }));
+      toast.success('Lesson complete · +10 XP', { autoClose: 1800 });
+
+      awardPoints(user.uid, course.id, 10, 'Lesson Completed', `Finished: ${currentLesson.title}`)
+        .then(() => (updated.length === 1 ? awardBadge(user.uid, course.id, 'first_lesson') : null))
+        .catch(() => {});
+
+      const doneSet = new Set(updated);
+      const chapterDone = (currentChapter.lessons || []).every(l => doneSet.has(lessonKey(currentChapter, l)));
+      const courseDone = allLessonKeys.every(k => doneSet.has(k));
+
+      if (courseDone) {
+        setMilestone({ type: 'course' });
+        setView('milestone');
+        window.scrollTo({ top: 0, behavior: 'smooth' });
+      } else if (chapterDone && currentChapter.quiz?.enabled && (bestQuizScore(currentChapter.id) ?? 0) < 70) {
+        setMilestone({ type: 'chapter', ci: position.ci });
+        setView('milestone');
+        window.scrollTo({ top: 0, behavior: 'smooth' });
+      } else {
+        goNext();
+      }
     } catch (error) {
-      toast.error('Failed to mark lesson complete');
+      console.error(error);
+      toast.error("Couldn't save your progress — please try again");
+    } finally {
+      setCompleting(false);
     }
   };
 
-  const handleNextLesson = () => {
-    if (currentLessonIndex < (currentChapter.lessons?.length || 0) - 1) {
-      setCurrentLessonIndex(currentLessonIndex + 1);
-    } else if (currentChapterIndex < chapters.length - 1) {
-      setCurrentChapterIndex(currentChapterIndex + 1);
-      setCurrentLessonIndex(0);
-    }
-  };
+  // ── Chapter quiz ───────────────────────────────────────────────────────────
+  const startQuiz = async (ci) => {
+    const chapter = chapters[ci];
+    if (!chapter?.quiz?.enabled) return;
+    setOutlineOpen(false);
+    setTab('lesson');
 
-  const handlePreviousLesson = () => {
-    if (currentLessonIndex > 0) {
-      setCurrentLessonIndex(currentLessonIndex - 1);
-    } else if (currentChapterIndex > 0) {
-      setCurrentChapterIndex(currentChapterIndex - 1);
-      const prevChapter = chapters[currentChapterIndex - 1];
-      setCurrentLessonIndex((prevChapter.lessons?.length || 1) - 1);
-    }
-  };
-
-  const handleStartQuiz = async () => {
-    if (!currentChapter.quiz || !currentChapter.quiz.enabled) {
-      toast.error('No quiz available for this chapter');
+    if (chapter.quiz.questions?.length) {
+      setQuiz({ ci, questions: chapter.quiz.questions });
+      setView('quiz');
+      window.scrollTo({ top: 0, behavior: 'smooth' });
       return;
     }
 
     setQuizLoading(true);
     try {
-      // Use predefined quiz questions from chapter
-      if (currentChapter.quiz.questions && currentChapter.quiz.questions.length > 0) {
-        setQuiz({ questions: currentChapter.quiz.questions });
-        setShowQuiz(true);
-      } else {
-        // Generate adaptive quiz using AI
-        const quizData = await generateAdaptiveQuiz(
-          course,
-          currentChapter.title,
-          enrollment,
-          enrollment.quizResults || []
-        );
-        setQuiz(quizData);
-        setShowQuiz(true);
-      }
+      const data = await generateAdaptiveQuiz(course, chapter, enrollment.quizResults || []);
+      setQuiz({ ci, questions: data.questions });
+      setView('quiz');
+      window.scrollTo({ top: 0, behavior: 'smooth' });
     } catch (error) {
-      toast.error('Failed to load quiz');
+      toast.error(error.message || "Couldn't load the quiz");
     } finally {
       setQuizLoading(false);
     }
   };
 
-  const handleQuizAnswer = (questionId, answer) => {
-    setQuizAnswers({ ...quizAnswers, [questionId]: answer });
-  };
-
-  const handleSubmitQuiz = async () => {
-    if (Object.keys(quizAnswers).length !== quiz.questions.length) {
-      toast.error('Please answer all questions');
-      return;
-    }
-
-    let correct = 0;
-    quiz.questions.forEach(q => {
-      if (quizAnswers[q.id] === q.correctAnswer) {
-        correct++;
-      }
-    });
-
-    const score = (correct / quiz.questions.length) * 100;
-
+  const submitQuiz = async ({ score, answers, correct, total }) => {
+    const chapter = chapters[quiz.ci];
     try {
-      await saveQuizResult(enrollmentId, {
-        moduleId: currentChapter?.id || 'unknown',
-        chapterId: currentChapter?.id || 'unknown',
+      await saveQuizResult(enrollmentId, user.uid, {
+        moduleId: chapter.id,
+        chapterId: chapter.id,
         score,
-        answers: quizAnswers,
-        totalQuestions: quiz.questions.length,
+        answers,
+        totalQuestions: total,
         correctAnswers: correct,
       });
+      setEnrollment(prev => ({
+        ...prev,
+        quizResults: [...(prev.quizResults || []), { moduleId: chapter.id, score, submittedAt: new Date().toISOString() }],
+      }));
 
-      // Award points based on score
-      const pointsEarned = Math.round(score / 2); // 50 points for 100% score
-      await awardPoints(
-        user.uid,
-        course.id,
-        pointsEarned,
-        'Quiz Completed',
-        `Scored ${score.toFixed(0)}% on ${currentChapter.title}`
-      );
-
-      // Award badge for perfect score
-      if (score === 100) {
-        await awardBadge(user.uid, course.id, 'quiz_master');
-        toast.success(`Perfect score! +${pointsEarned} XP + Quiz Master Badge! 🧠`);
-      } else {
-        toast.success(`Quiz completed! Score: ${score.toFixed(0)}% (+${pointsEarned} XP)`);
-      }
-
-      setShowQuiz(false);
-      setQuizAnswers({});
-      await loadCourseData();
+      const pointsEarned = Math.round(score / 2);
+      awardPoints(user.uid, course.id, pointsEarned, 'Quiz Completed', `Scored ${score}% on ${chapter.title}`)
+        .then(() => (score === 100 ? awardBadge(user.uid, course.id, 'quiz_master') : null))
+        .catch(() => {});
+      return { pointsEarned };
     } catch (error) {
-      toast.error('Failed to submit quiz');
+      console.error(error);
+      toast.error("Couldn't save your quiz result");
+      return {};
     }
   };
 
-  const isLessonCompleted = (chapterId, lessonId) => {
-    const lessonKey = `${chapterId}_${lessonId}`;
-    return enrollment?.completedLessons?.includes(lessonKey);
+  const afterQuiz = () => {
+    const next = firstIncomplete();
+    if (!next && hasExamQuestions) {
+      navigate(`/student/exam/${enrollmentId}`);
+    } else if (next) {
+      goTo(next.ci, next.li);
+    } else {
+      goTo(quiz.ci, 0);
+    }
   };
 
+  const openExam = () => {
+    if (enrollment?.certificateId) navigate('/student/certificates');
+    else navigate(`/student/exam/${enrollmentId}`);
+  };
+
+  // ── Render ─────────────────────────────────────────────────────────────────
   if (loading) {
+    return <StudentLayout><Loading fullScreen={false} label="Opening your course…" /></StudentLayout>;
+  }
+
+  if (loadError || !course) {
     return (
       <StudentLayout>
-        <div className="flex items-center justify-center h-screen">
-          <div className="text-white text-xl">Loading course...</div>
-        </div>
+        <EmptyState
+          icon={BookOpen}
+          title="We couldn't open this course"
+          body="It may have been removed, or the link is wrong."
+          action={<Link to="/student/dashboard" className="rounded-xl bg-white/10 px-5 py-2.5 text-sm font-medium text-white hover:bg-white/15">Back to dashboard</Link>}
+        />
       </StudentLayout>
     );
   }
 
+  if (chapters.length === 0) {
+    return (
+      <StudentLayout>
+        <CurriculumPlan course={course} curriculum={curriculum} onAskBuddy={toggleBuddy} />
+      </StudentLayout>
+    );
+  }
+
+  const examInfo = hasExamQuestions
+    ? { unlocked: remainingLessons === 0, certified: Boolean(enrollment.certificateId), remaining: remainingLessons, onOpen: openExam }
+    : null;
+
+  const outline = (
+    <CourseOutline
+      chapters={chapters}
+      currentChapterIndex={view === 'quiz' && quiz ? quiz.ci : position.ci}
+      currentLessonIndex={position.li}
+      activeView={view === 'quiz' ? 'quiz' : 'lesson'}
+      isLessonCompleted={isLessonCompleted}
+      bestQuizScore={bestQuizScore}
+      onSelectLesson={goTo}
+      onStartQuiz={startQuiz}
+      exam={examInfo}
+    />
+  );
+
+  const minutes = currentLesson?.estimatedMinutes || estimateMinutes(currentLesson?.content);
+  const tabs = [
+    { id: 'lesson', icon: BookOpen, label: 'Lesson' },
+    { id: 'notes', icon: FileText, label: 'Notes' },
+    { id: 'tasks', icon: Target, label: 'Tasks' },
+    { id: 'progress', icon: Award, label: 'Progress' },
+    { id: 'resources', icon: Download, label: 'Resources', count: pptFiles.length },
+  ];
+
   return (
     <StudentLayout>
-      <div className="space-y-3 sm:space-y-6">
-        {/* Header with Progress */}
-        <div className="bg-gradient-to-r from-purple-600 to-blue-600 rounded-xl sm:rounded-2xl p-4 sm:p-6 text-white">
-          <div className="flex items-start justify-between mb-3">
-            <div className="flex-1 min-w-0 pr-3">
-              <h1 className="text-base sm:text-2xl lg:text-3xl font-bold mb-0.5 sm:mb-2 leading-snug line-clamp-2">{course.title}</h1>
-              <p className="text-blue-100 text-xs sm:text-sm truncate">Ch {currentChapterIndex + 1}: {currentChapter?.title}</p>
-            </div>
-            <div className="flex items-center gap-2 flex-shrink-0">
-              {/* Chapter list toggle — mobile only */}
-              <button
-                onClick={() => setShowChapterDrawer(true)}
-                className="lg:hidden flex items-center gap-1.5 px-3 py-2 bg-white/20 hover:bg-white/30 rounded-lg transition-colors text-sm"
-              >
-                <List size={16} />
-                <span className="hidden sm:inline">Chapters</span>
-              </button>
-              <button
-                onClick={toggleBuddy}
-                className="flex items-center gap-1.5 px-3 py-2 bg-white/20 hover:bg-white/30 rounded-lg transition-colors text-sm"
-              >
-                <MessageCircle size={16} />
-                <span className="hidden sm:inline">Ask Buddy</span>
-              </button>
+      {/* ── Course header ─────────────────────────────────────────────────── */}
+      <header className="sticky top-14 lg:top-16 z-20 border-b border-white/[0.07] bg-gray-950/90 backdrop-blur-xl">
+        <div className="flex items-center gap-3 px-4 py-2.5 sm:px-6">
+          <Link to="/student/dashboard" className="rounded-lg p-2 text-gray-400 hover:bg-white/10 hover:text-white" aria-label="Back to dashboard">
+            <ArrowLeft size={18} />
+          </Link>
+          <div className="min-w-0 flex-1">
+            <h1 className="truncate text-sm sm:text-base font-semibold text-white">{course.title}</h1>
+            <div className="mt-1 flex items-center gap-2">
+              <div className="h-1.5 w-28 sm:w-44 overflow-hidden rounded-full bg-white/10">
+                <div className="h-full rounded-full bg-gradient-to-r from-emerald-400 to-blue-400 transition-all duration-500" style={{ width: `${progressPct}%` }} />
+              </div>
+              <span className="text-[11px] tabular-nums text-gray-400">{progressPct}% · {completedCount}/{totalLessons} lessons</span>
             </div>
           </div>
-          
-          {/* Progress Bar */}
-          <div className="space-y-1">
-            <div className="flex justify-between text-xs sm:text-sm">
-              <span>Progress</span>
-              <span>{completedLessons}/{totalLessons} lessons</span>
-            </div>
-            <div className="w-full bg-white/20 rounded-full h-2 sm:h-3">
-              <div
-                className="bg-gradient-to-r from-green-400 to-blue-400 h-2 sm:h-3 rounded-full transition-all duration-500"
-                style={{ width: `${progressPercentage}%` }}
-              />
-            </div>
-            <p className="text-xs text-blue-100">{progressPercentage.toFixed(0)}% Complete</p>
-          </div>
-        </div>
 
-        <div className="grid lg:grid-cols-4 gap-4 sm:gap-6">
-          {/* Main Content Area */}
-          <div className="lg:col-span-3 space-y-3 sm:space-y-6">
-            {/* Tab Navigation */}
-            <div className="bg-white/5 backdrop-blur-lg border border-white/10 rounded-xl p-1.5 flex gap-1">
-              {[
-                { id: 'content',       icon: BookOpen, label: 'Content'   },
-                { id: 'notes',         icon: FileText,  label: 'Notes'     },
-                { id: 'todo',          icon: Target,    label: 'Tasks'     },
-                { id: 'gamification',  icon: Award,     label: 'Progress'  },
-                { id: 'resources',     icon: Download,  label: 'Resources' },
-              ].map(({ id, icon: Icon, label }) => (
+          {currentLesson?.content && view === 'lesson' && tab === 'lesson' && (
+            <div className="hidden sm:flex rounded-lg bg-white/[0.06] p-0.5" role="group" aria-label="Lesson view">
+              {[{ id: 'read', icon: BookOpen, label: 'Read' }, { id: 'slides', icon: Presentation, label: 'Slides' }].map(m => (
                 <button
-                  key={id}
-                  onClick={() => setActiveTab(id)}
-                  className={`flex-1 flex items-center justify-center gap-1.5 px-2 py-2 sm:px-4 rounded-lg font-medium transition-colors text-xs sm:text-sm ${
-                    activeTab === id
-                      ? 'bg-gradient-to-r from-blue-600 to-purple-600 text-white'
-                      : 'text-gray-400 hover:text-white'
-                  }`}
+                  key={m.id}
+                  onClick={() => changeMode(m.id)}
+                  aria-pressed={mode === m.id}
+                  className={`flex items-center gap-1.5 rounded-md px-2.5 py-1.5 text-xs font-medium transition-colors ${mode === m.id ? 'bg-white/15 text-white' : 'text-gray-400 hover:text-white'}`}
                 >
-                  <Icon size={16} className="flex-shrink-0" />
-                  <span className="hidden sm:inline">{label}</span>
+                  <m.icon size={14} /> {m.label}
                 </button>
               ))}
             </div>
+          )}
+          <button
+            onClick={toggleBuddy}
+            className="flex items-center gap-1.5 rounded-lg bg-violet-500/15 px-3 py-2 text-xs font-medium text-violet-200 hover:bg-violet-500/25"
+          >
+            <MessageCircle size={15} /> <span className="hidden sm:inline">Ask Buddy</span>
+          </button>
+          <button
+            onClick={() => setOutlineOpen(true)}
+            className="lg:hidden rounded-lg bg-white/[0.06] p-2 text-gray-300 hover:bg-white/10"
+            aria-label="Open course outline"
+          >
+            <List size={18} />
+          </button>
+        </div>
+        {mode === 'read' && view === 'lesson' && tab === 'lesson' && (
+          <div className="h-0.5 bg-transparent">
+            <div className="h-full bg-blue-400/70 transition-[width] duration-150" style={{ width: `${readProgress * 100}%` }} />
+          </div>
+        )}
+      </header>
 
-            {/* Content Display */}
-            {activeTab === 'content' && !showQuiz && (
-              <div className="bg-white/5 backdrop-blur-lg border border-white/10 rounded-xl sm:rounded-2xl p-3 sm:p-6">
-                <div className="mb-4 sm:mb-6">
-                  <div className="flex flex-wrap items-center gap-2 mb-3">
-                    <span className="px-2.5 py-1 bg-blue-500/20 text-blue-300 text-xs font-medium rounded-full border border-blue-500/30">
-                      Lesson {currentLessonIndex + 1}/{currentChapter?.lessons?.length || 0}
-                    </span>
-                    {isLessonCompleted(currentChapter.id, currentLesson.id) && (
-                      <span className="px-2.5 py-1 bg-green-500/20 text-green-300 text-xs font-medium rounded-full border border-green-500/30 flex items-center gap-1">
-                        <CheckCircle size={12} />
-                        Done
-                      </span>
-                    )}
-                    <span className="px-2.5 py-1 bg-purple-500/20 text-purple-300 text-xs font-medium rounded-full border border-purple-500/30">
-                      {currentLesson?.duration || '30 min'}
-                    </span>
-                  </div>
-                  
-                  <h2 className="text-xl sm:text-3xl font-bold text-white mb-2">{currentLesson?.title}</h2>
-                  
-                  {/* Lesson Type Badge + Watch Video button */}
-                  <div className="flex items-center gap-3">
-                    <div className="flex items-center gap-1.5 text-gray-400 text-xs sm:text-sm">
-                      {currentLesson?.type === 'video' && <Video size={14} />}
-                      {currentLesson?.type === 'document' && <File size={14} />}
-                      {currentLesson?.type === 'article' && <FileText size={14} />}
-                      <span className="capitalize">{currentLesson?.type} Lesson</span>
-                    </div>
-                    {currentLesson?.youtubeUrl && (
-                      <button
-                        onClick={() => setVideoPlayer({ url: currentLesson.youtubeUrl, title: currentLesson.title, lessonId: currentLesson.id })}
-                        className="flex items-center gap-1.5 px-3 py-1.5 bg-red-500/20 hover:bg-red-500/30 text-red-300 rounded-lg text-xs font-medium transition-colors border border-red-500/30"
-                      >
-                        <Youtube size={14} />
-                        Watch Video
-                      </button>
-                    )}
-                  </div>
+      <div className="flex">
+        {/* ── Outline (desktop) ───────────────────────────────────────────── */}
+        <aside className="hidden lg:block w-80 shrink-0 border-r border-white/[0.07]">
+          <div className="sticky top-[7.5rem] max-h-[calc(100vh-7.5rem)] overflow-y-auto p-4">
+            {outline}
+          </div>
+        </aside>
+
+        {/* ── Main column ─────────────────────────────────────────────────── */}
+        <div className="min-w-0 flex-1 px-4 pb-28 pt-5 sm:px-8 lg:pb-12">
+          <div className="mx-auto max-w-3xl">
+            {view === 'quiz' && quiz ? (
+              <ChapterQuiz
+                key={`${quiz.ci}-${quiz.questions.length}`}
+                chapterTitle={chapters[quiz.ci].title}
+                questions={quiz.questions}
+                onSubmit={submitQuiz}
+                onExit={() => setView('lesson')}
+                onContinue={afterQuiz}
+                continueLabel={firstIncomplete() ? 'Continue learning' : hasExamQuestions ? 'Go to final exam' : 'Back to course'}
+              />
+            ) : view === 'milestone' && milestone ? (
+              <Milestone
+                milestone={milestone}
+                chapter={milestone.type === 'chapter' ? chapters[milestone.ci] : null}
+                courseTitle={course.title}
+                hasExam={hasExamQuestions}
+                certified={Boolean(enrollment.certificateId)}
+                quizLoading={quizLoading}
+                onQuiz={() => startQuiz(milestone.ci)}
+                onSkip={() => { const n = firstIncomplete(); if (n) goTo(n.ci, n.li); else setView('lesson'); }}
+                onExam={openExam}
+                onReview={() => setView('lesson')}
+              />
+            ) : (
+              <>
+                {/* Study tool tabs */}
+                <div className="mb-5 flex gap-1 overflow-x-auto rounded-xl border border-white/[0.07] bg-white/[0.02] p-1" role="tablist">
+                  {tabs.map(({ id, icon: Icon, label, count }) => (
+                    <button
+                      key={id}
+                      role="tab"
+                      aria-selected={tab === id}
+                      onClick={() => setTab(id)}
+                      className={`flex flex-1 items-center justify-center gap-1.5 whitespace-nowrap rounded-lg px-3 py-2 text-xs sm:text-sm font-medium transition-colors ${tab === id ? 'bg-white/10 text-white' : 'text-gray-400 hover:text-white'}`}
+                    >
+                      <Icon size={15} />
+                      <span className={id === 'lesson' ? '' : 'hidden sm:inline'}>{label}</span>
+                      {count > 0 && <span className="rounded-full bg-orange-500/20 px-1.5 text-[10px] text-orange-300">{count}</span>}
+                    </button>
+                  ))}
                 </div>
 
-                {/* Video Lesson */}
-                {currentLesson?.type === 'video' && currentLesson.videoUrl && (
-                  <div className="mb-6">
-                    {currentLesson.videoUrl.includes('youtube.com') || currentLesson.videoUrl.includes('youtu.be') ? (
-                      <div className="aspect-video rounded-xl overflow-hidden">
-                        <iframe
-                          src={currentLesson.videoUrl.replace('watch?v=', 'embed/')}
-                          className="w-full h-full"
-                          allowFullScreen
-                        />
+                {tab === 'lesson' && currentLesson && (
+                  <article ref={articleRef} key={`${position.ci}-${position.li}`} className="animate-fade-in">
+                    {/* Lesson heading */}
+                    <p className="text-xs font-medium uppercase tracking-wider text-blue-300/80">
+                      Chapter {position.ci + 1} · {currentChapter.title}
+                    </p>
+                    <h1 className="mt-2 text-2xl sm:text-[2rem] font-bold leading-tight tracking-tight text-white">
+                      {currentLesson.title}
+                    </h1>
+                    <div className="mt-3 flex flex-wrap items-center gap-x-4 gap-y-2 text-xs text-gray-400">
+                      <span>Lesson {position.li + 1} of {currentChapter.lessons.length}</span>
+                      <span className="flex items-center gap-1"><Clock size={13} /> {minutes} min</span>
+                      {currentDone && <span className="flex items-center gap-1 text-emerald-300"><CheckCircle2 size={13} /> Completed</span>}
+                      {currentLesson.youtubeUrl && (
+                        <button
+                          onClick={() => setVideoPlayer({ url: currentLesson.youtubeUrl, title: currentLesson.title, lessonId: currentLesson.id })}
+                          className="flex items-center gap-1.5 rounded-lg border border-red-500/30 bg-red-500/10 px-2.5 py-1 font-medium text-red-200 hover:bg-red-500/20"
+                        >
+                          <Youtube size={13} /> Watch video
+                        </button>
+                      )}
+                    </div>
+
+                    {/* Mobile view toggle */}
+                    {currentLesson.content && (
+                      <div className="mt-4 flex sm:hidden rounded-lg bg-white/[0.06] p-0.5 w-fit">
+                        {['read', 'slides'].map(m => (
+                          <button key={m} onClick={() => changeMode(m)} className={`rounded-md px-3 py-1.5 text-xs font-medium capitalize ${mode === m ? 'bg-white/15 text-white' : 'text-gray-400'}`}>{m}</button>
+                        ))}
                       </div>
-                    ) : (
-                      <video
-                        controls
-                        className="w-full rounded-xl"
-                        src={currentLesson.videoUrl}
-                      >
-                        Your browser does not support the video tag.
-                      </video>
                     )}
-                  </div>
-                )}
 
-                {/* Document Lesson */}
-                {currentLesson?.type === 'document' && currentLesson.documentUrl && (
-                  <div className="mb-6 p-6 bg-white/5 border border-white/10 rounded-xl">
-                    <div className="flex items-center justify-between mb-4">
-                      <h3 className="text-lg font-semibold text-white">Course Materials</h3>
-                      <a
-                        href={currentLesson.documentUrl}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className="flex items-center gap-2 px-4 py-2 bg-blue-500/20 text-blue-300 rounded-lg hover:bg-blue-500/30 transition-colors"
-                      >
-                        <Download size={18} />
-                        Download
-                      </a>
+                    <div className="mt-6">
+                      <LessonMedia lesson={currentLesson} />
+
+                      {currentLesson.content && (
+                        mode === 'slides'
+                          ? <LessonSlides blocks={blocks} onFinished={markComplete} />
+                          : (
+                            <>
+                              {sections.length >= 3 && <OnThisPage sections={sections} />}
+                              <Blocks blocks={readingBlocks} />
+                            </>
+                          )
+                      )}
                     </div>
-                    <iframe
-                      src={`https://docs.google.com/viewer?url=${encodeURIComponent(currentLesson.documentUrl)}&embedded=true`}
-                      className="w-full h-[600px] rounded-lg"
-                    />
-                  </div>
-                )}
 
-                {/* Article/Text Content - Presentation Style */}
-                {(currentLesson?.type === 'article' || currentLesson?.type === 'interactive') && currentLesson.content && (
-                  <div className="mb-6">
-                    <PresentationRenderer content={currentLesson.content} />
-                  </div>
-                )}
-
-                {/* Lesson Navigation */}
-                <div className="pt-4 sm:pt-6 border-t border-white/10 space-y-3">
-                  {/* Action buttons row */}
-                  <div className="flex gap-2">
-                    {!isLessonCompleted(currentChapter.id, currentLesson.id) && (
-                      <button
-                        onClick={markLessonComplete}
-                        className="flex-1 flex items-center justify-center gap-1.5 px-3 py-2.5 sm:py-3 bg-gradient-to-r from-green-600 to-emerald-600 text-white rounded-lg hover:scale-105 transition-transform text-sm font-medium"
-                      >
-                        <CheckCircle size={16} />
-                        <span>Mark Complete</span>
-                      </button>
-                    )}
-                    {currentLessonIndex === (currentChapter?.lessons?.length || 1) - 1 && currentChapter?.quiz?.enabled && (
-                      <button
-                        onClick={handleStartQuiz}
-                        disabled={quizLoading}
-                        className="flex-1 flex items-center justify-center gap-1.5 px-3 py-2.5 sm:py-3 bg-gradient-to-r from-yellow-600 to-orange-600 text-white rounded-lg hover:scale-105 transition-transform disabled:opacity-50 text-sm font-medium"
-                      >
-                        <Brain size={16} />
-                        <span>{quizLoading ? 'Loading...' : 'Take Quiz'}</span>
-                      </button>
-                    )}
-                  </div>
-                  {/* Prev / Next row */}
-                  <div className="flex gap-2">
-                    <button
-                      onClick={handlePreviousLesson}
-                      disabled={currentChapterIndex === 0 && currentLessonIndex === 0}
-                      className="flex-1 flex items-center justify-center gap-1.5 px-3 py-2.5 bg-white/10 hover:bg-white/20 text-white rounded-lg transition-colors disabled:opacity-30 disabled:cursor-not-allowed text-sm"
-                    >
-                      <ChevronLeft size={16} />
-                      Prev
-                    </button>
-                    <button
-                      onClick={handleNextLesson}
-                      disabled={currentChapterIndex === chapters.length - 1 && currentLessonIndex === (currentChapter?.lessons?.length || 1) - 1}
-                      className="flex-1 flex items-center justify-center gap-1.5 px-3 py-2.5 bg-white/10 hover:bg-white/20 text-white rounded-lg transition-colors disabled:opacity-30 disabled:cursor-not-allowed text-sm"
-                    >
-                      Next
-                      <ChevronRight size={16} />
-                    </button>
-                  </div>
-                </div>
-              </div>
-            )}
-
-            {/* Quiz Interface */}
-            {activeTab === 'content' && showQuiz && (
-              <div className="bg-white/5 backdrop-blur-lg border border-white/10 rounded-2xl p-6">
-                <h2 className="text-2xl font-bold text-white mb-6">Chapter Quiz</h2>
-                <div className="space-y-6">
-                  {quiz.questions.map((question, qIndex) => (
-                    <div key={question.id} className="p-6 bg-white/5 border border-white/10 rounded-xl">
-                      <p className="font-semibold text-white mb-4 text-lg">
-                        {qIndex + 1}. {question.question}
-                      </p>
-                      <div className="space-y-3">
-                        {question.options.map((option, optIndex) => (
-                          <label
-                            key={optIndex}
-                            className="flex items-center gap-3 p-4 bg-white/5 hover:bg-white/10 border border-white/10 rounded-lg cursor-pointer transition-colors"
+                    {/* Learn-with-Buddy prompts */}
+                    <div className="mt-10 rounded-2xl border border-violet-500/20 bg-violet-500/[0.05] p-4 sm:p-5">
+                      <p className="flex items-center gap-2 text-sm font-semibold text-violet-200"><Sparkles size={15} /> Stuck or curious? Ask Buddy</p>
+                      <div className="mt-3 flex flex-wrap gap-2">
+                        {[
+                          { icon: HelpCircle, label: 'Explain it simply', text: `Can you explain the lesson "${currentLesson.title}" in simple terms with an everyday analogy?` },
+                          { icon: Brain, label: 'Quiz me on this', text: `Quiz me on the lesson "${currentLesson.title}"` },
+                          { icon: Sparkles, label: 'Give me a real example', text: `Give me a concrete real-world example of the main idea in "${currentLesson.title}".` },
+                        ].map(p => (
+                          <button
+                            key={p.label}
+                            onClick={() => askBuddy(p.text)}
+                            className="flex items-center gap-1.5 rounded-full border border-white/10 bg-white/[0.04] px-3 py-1.5 text-xs text-gray-200 hover:border-violet-400/40 hover:bg-violet-500/10"
                           >
-                            <input
-                              type="radio"
-                              name={`question-${question.id}`}
-                              value={optIndex}
-                              checked={quizAnswers[question.id] === optIndex}
-                              onChange={() => handleQuizAnswer(question.id, optIndex)}
-                              className="w-5 h-5 text-blue-600"
-                            />
-                            <span className="text-white">{option}</span>
-                          </label>
+                            <p.icon size={13} className="text-violet-300" /> {p.label}
+                          </button>
                         ))}
                       </div>
                     </div>
-                  ))}
-                </div>
-                <div className="flex gap-4 mt-6">
-                  <button
-                    onClick={() => setShowQuiz(false)}
-                    className="px-6 py-3 bg-white/10 hover:bg-white/20 text-white rounded-lg transition-colors"
-                  >
-                    Cancel
-                  </button>
-                  <button
-                    onClick={handleSubmitQuiz}
-                    className="flex-1 px-6 py-3 bg-gradient-to-r from-blue-600 to-purple-600 text-white font-semibold rounded-lg hover:scale-105 transition-transform"
-                  >
-                    Submit Quiz
-                  </button>
-                </div>
-              </div>
-            )}
 
-            {/* Notes Tab */}
-            {activeTab === 'notes' && (
-              <StudentNotes
-                courseId={course.id}
-                chapterId={currentChapter?.id}
-                lessonId={currentLesson?.id}
-              />
-            )}
-
-            {/* Todo Tab */}
-            {activeTab === 'todo' && (
-              <StudentTodoList courseId={course.id} />
-            )}
-
-            {/* Gamification Tab */}
-            {activeTab === 'gamification' && (
-              <Gamification courseId={course.id} enrollmentId={enrollmentId} />
-            )}
-
-            {/* Resources Tab */}
-            {activeTab === 'resources' && (
-              <div className="bg-white/5 backdrop-blur-lg border border-white/10 rounded-xl sm:rounded-2xl p-4 sm:p-6">
-                <h2 className="text-lg font-semibold text-white mb-4 flex items-center gap-2">
-                  <Download size={20} className="text-orange-400" />
-                  Course Materials
-                </h2>
-                {pptFiles.length === 0 ? (
-                  <p className="text-gray-400 text-sm">No resources have been uploaded for this course yet.</p>
-                ) : (
-                  <div className="space-y-3">
-                    {pptFiles.map((file) => (
-                      <div key={file.id} className="flex items-center gap-3 bg-white/5 border border-white/10 rounded-lg px-4 py-3">
-                        <FileText size={18} className="text-orange-400 flex-shrink-0" />
-                        <span className="flex-1 text-sm text-white truncate">{file.name}</span>
-                        <a
-                          href={`data:${file.fileType};base64,${file.data}`}
-                          download={file.name}
-                          className="flex items-center gap-1.5 px-3 py-1.5 bg-orange-500/20 hover:bg-orange-500/30 text-orange-300 rounded-lg text-xs font-medium transition-colors flex-shrink-0"
+                    {/* Lesson footer navigation (desktop) */}
+                    <div className="mt-8 hidden lg:flex items-center gap-3 border-t border-white/[0.07] pt-6">
+                      <button
+                        onClick={goPrev}
+                        disabled={isFirstLesson}
+                        className="flex items-center gap-1.5 rounded-xl bg-white/[0.06] px-4 py-3 text-sm text-white hover:bg-white/10 disabled:cursor-not-allowed disabled:opacity-30"
+                      >
+                        <ChevronLeft size={16} /> Previous
+                      </button>
+                      <div className="flex-1" />
+                      <CompleteButton done={currentDone} last={isLastLesson} busy={completing} onClick={markComplete} />
+                      {!currentDone && (
+                        <button
+                          onClick={goNext}
+                          disabled={isLastLesson}
+                          className="flex items-center gap-1.5 rounded-xl px-3 py-3 text-sm text-gray-400 hover:text-white disabled:opacity-30"
                         >
-                          <Download size={14} />
-                          Download
-                        </a>
-                      </div>
-                    ))}
-                  </div>
+                          Skip <ChevronRight size={16} />
+                        </button>
+                      )}
+                    </div>
+                    <p className="mt-3 hidden lg:block text-right text-[11px] text-gray-600">Tip: use ← → to move between lessons</p>
+                  </article>
                 )}
-              </div>
-            )}
 
-      {/* Floating Video Player */}
+                {tab === 'notes' && (
+                  <StudentNotes courseId={course.id} chapterId={currentChapter?.id} lessonId={currentLesson?.id} />
+                )}
+                {tab === 'tasks' && <StudentTodoList courseId={course.id} />}
+                {tab === 'progress' && <Gamification courseId={course.id} enrollmentId={enrollmentId} />}
+                {tab === 'resources' && <Resources files={pptFiles} />}
+              </>
+            )}
+          </div>
+        </div>
+      </div>
+
+      {/* ── Mobile bottom action bar ──────────────────────────────────────── */}
+      {view === 'lesson' && tab === 'lesson' && (
+        <div className="lg:hidden fixed inset-x-0 bottom-0 z-30 border-t border-white/10 bg-[#0d1117]/95 backdrop-blur-xl px-3 pt-2.5 pb-[max(0.625rem,env(safe-area-inset-bottom))]">
+          <div className="flex items-center gap-2">
+            <button onClick={goPrev} disabled={isFirstLesson} className="rounded-xl bg-white/[0.06] p-3 text-white disabled:opacity-30" aria-label="Previous lesson">
+              <ChevronLeft size={18} />
+            </button>
+            <div className="flex-1">
+              <CompleteButton done={currentDone} last={isLastLesson} busy={completing} onClick={markComplete} full />
+            </div>
+            <button onClick={goNext} disabled={isLastLesson} className="rounded-xl bg-white/[0.06] p-3 text-white disabled:opacity-30" aria-label="Next lesson">
+              <ChevronRight size={18} />
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* ── Mobile outline drawer ─────────────────────────────────────────── */}
+      {outlineOpen && (
+        <div className="lg:hidden fixed inset-0 z-50 flex items-end" role="dialog" aria-modal="true" aria-label="Course outline">
+          <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" onClick={() => setOutlineOpen(false)} />
+          <div className="relative z-10 flex max-h-[85dvh] w-full flex-col overflow-hidden rounded-t-3xl border border-white/10 bg-[#0d1117]">
+            <div className="flex items-center justify-between border-b border-white/10 px-5 py-4">
+              <div>
+                <h3 className="text-base font-semibold text-white">Course outline</h3>
+                <p className="text-xs text-gray-400">{progressPct}% complete</p>
+              </div>
+              <button onClick={() => setOutlineOpen(false)} className="rounded-lg p-1.5 text-gray-400 hover:bg-white/10" aria-label="Close outline">
+                <X size={20} />
+              </button>
+            </div>
+            <div className="flex-1 overflow-y-auto p-4">{outline}</div>
+          </div>
+        </div>
+      )}
+
       {videoPlayer && (
         <FloatingVideoPlayer
           url={videoPlayer.url}
@@ -1082,101 +681,192 @@ const EnhancedCourseRoom = () => {
           onClose={() => setVideoPlayer(null)}
         />
       )}
-          </div>
-
-          {/* Sidebar — desktop only; mobile uses bottom drawer */}
-          <div className="hidden lg:block space-y-4">
-            <CourseContentSidebar
-              chapters={chapters}
-              currentChapterIndex={currentChapterIndex}
-              currentLessonIndex={currentLessonIndex}
-              isLessonCompleted={isLessonCompleted}
-              onSelectChapter={(ci) => { setCurrentChapterIndex(ci); setCurrentLessonIndex(0); }}
-              onSelectLesson={(li) => setCurrentLessonIndex(li)}
-            />
-          </div>
-        </div>
-      </div>
-
-      {/* Mobile Chapter Drawer ─────────────────────────────────────────── */}
-      {showChapterDrawer && (
-        <div className="lg:hidden fixed inset-0 z-50 flex items-end">
-          <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" onClick={() => setShowChapterDrawer(false)} />
-          <div className="relative w-full bg-[#0d1117] border border-white/10 rounded-t-3xl max-h-[80dvh] overflow-hidden flex flex-col z-10">
-            <div className="flex items-center justify-between px-5 py-4 border-b border-white/10">
-              <h3 className="font-semibold text-white text-base">Course Content</h3>
-              <button onClick={() => setShowChapterDrawer(false)} className="p-1.5 rounded-lg hover:bg-white/10 text-gray-400">
-                <X size={20} />
-              </button>
-            </div>
-            <div className="overflow-y-auto flex-1 p-4">
-              <CourseContentSidebar
-                chapters={chapters}
-                currentChapterIndex={currentChapterIndex}
-                currentLessonIndex={currentLessonIndex}
-                isLessonCompleted={isLessonCompleted}
-                onSelectChapter={(ci) => { setCurrentChapterIndex(ci); setCurrentLessonIndex(0); setShowChapterDrawer(false); }}
-                onSelectLesson={(li) => { setCurrentLessonIndex(li); setShowChapterDrawer(false); }}
-              />
-            </div>
-          </div>
-        </div>
-      )}
     </StudentLayout>
   );
 };
 
-// ── Reusable chapter/lesson sidebar ─────────────────────────────────────────
-const CourseContentSidebar = ({
-  chapters, currentChapterIndex, currentLessonIndex, isLessonCompleted,
-  onSelectChapter, onSelectLesson
-}) => (
-  <div className="bg-white/5 backdrop-blur-lg border border-white/10 rounded-2xl p-4 sm:p-6">
-    <h3 className="font-semibold text-sm sm:text-lg mb-3 sm:mb-4 text-white">Course Content</h3>
-    <div className="space-y-2 sm:space-y-3 max-h-[60dvh] lg:max-h-[600px] overflow-y-auto pr-1">
-      {chapters.map((chapter, chIndex) => (
-        <div key={chapter.id} className="space-y-1.5">
-          <div
-            className={`p-2.5 sm:p-3 rounded-lg cursor-pointer transition-colors ${
-              chIndex === currentChapterIndex
-                ? 'bg-blue-500/20 border border-blue-500/30'
-                : 'bg-white/5 border border-white/10 hover:bg-white/10'
-            }`}
-            onClick={() => onSelectChapter(chIndex)}
-          >
-            <p className="font-medium text-white text-xs sm:text-sm">
-              Ch {chIndex + 1}: {chapter.title}
-            </p>
-            <p className="text-xs text-gray-400 mt-0.5">{chapter.lessons?.length || 0} lessons</p>
-          </div>
-          {chIndex === currentChapterIndex && (
-            <div className="ml-3 sm:ml-4 space-y-1 sm:space-y-2">
-              {chapter.lessons?.map((lesson, lIndex) => {
-                const completed = isLessonCompleted(chapter.id, lesson.id);
-                return (
-                  <div
-                    key={lesson.id}
-                    onClick={() => onSelectLesson(lIndex)}
-                    className={`p-1.5 sm:p-2 rounded-lg cursor-pointer flex items-center gap-2 transition-colors ${
-                      lIndex === currentLessonIndex
-                        ? 'bg-purple-500/20 border border-purple-500/30'
-                        : 'bg-white/5 hover:bg-white/10'
-                    }`}
-                  >
-                    {completed ? (
-                      <CheckCircle size={14} className="text-green-400 flex-shrink-0" />
-                    ) : (
-                      <div className="w-3.5 h-3.5 rounded-full border-2 border-white/20 flex-shrink-0" />
-                    )}
-                    <span className="text-xs sm:text-sm text-white leading-snug">{lesson.title}</span>
-                  </div>
-                );
-              })}
-            </div>
+// ── Pieces ────────────────────────────────────────────────────────────────────
+
+const CompleteButton = ({ done, last, busy, onClick, full = false }) => (
+  <button
+    onClick={onClick}
+    disabled={busy || (done && last)}
+    className={`flex items-center justify-center gap-2 rounded-xl px-5 py-3 text-sm font-semibold transition-all disabled:opacity-60 ${full ? 'w-full' : ''} ${
+      done
+        ? 'bg-white/[0.08] text-white hover:bg-white/[0.12]'
+        : 'bg-gradient-to-r from-emerald-500 to-teal-500 text-white shadow-lg shadow-emerald-900/30 hover:opacity-90'
+    }`}
+  >
+    {busy ? 'Saving…' : done ? (last ? <><CheckCircle2 size={16} /> Completed</> : <>Next lesson <ArrowRight size={16} /></>) : <><CheckCircle2 size={16} /> {last ? 'Complete lesson' : 'Complete & continue'}</>}
+  </button>
+);
+
+const OnThisPage = ({ sections }) => (
+  <details className="group mb-6 rounded-xl border border-white/[0.07] bg-white/[0.02] open:pb-2">
+    <summary className="flex cursor-pointer list-none items-center justify-between px-4 py-3 text-sm font-medium text-gray-300">
+      <span className="flex items-center gap-2"><List size={15} /> In this lesson · {sections.length} sections</span>
+      <ChevronRight size={15} className="transition-transform group-open:rotate-90" />
+    </summary>
+    <ol className="space-y-0.5 px-2">
+      {sections.map((s, i) => (
+        <li key={s.index}>
+          <a href={`#sec-${s.index}`} className="flex gap-2 rounded-lg px-2 py-1.5 text-sm text-gray-400 hover:bg-white/[0.05] hover:text-white">
+            <span className="tabular-nums text-gray-600">{i + 1}.</span> {s.text}
+          </a>
+        </li>
+      ))}
+    </ol>
+  </details>
+);
+
+const LessonMedia = ({ lesson }) => {
+  if (lesson.type === 'video' && lesson.videoUrl) {
+    const embed = /youtube\.com|youtu\.be/.test(lesson.videoUrl) ? youtubeEmbedUrl(lesson.videoUrl) : null;
+    return (
+      <div className="mb-6 overflow-hidden rounded-2xl border border-white/10 bg-black">
+        {embed
+          ? <div className="aspect-video"><iframe src={embed} title={lesson.title} className="h-full w-full" allowFullScreen /></div>
+          : <video controls className="w-full" src={lesson.videoUrl}>Your browser does not support the video tag.</video>}
+      </div>
+    );
+  }
+  if (lesson.type === 'document' && lesson.documentUrl) {
+    return (
+      <div className="mb-6 rounded-2xl border border-white/10 bg-white/[0.03] p-4">
+        <div className="mb-3 flex items-center justify-between">
+          <p className="flex items-center gap-2 text-sm font-semibold text-white"><File size={16} /> Lesson document</p>
+          <a href={lesson.documentUrl} target="_blank" rel="noopener noreferrer" className="flex items-center gap-1.5 rounded-lg bg-blue-500/15 px-3 py-1.5 text-xs font-medium text-blue-200 hover:bg-blue-500/25">
+            <Download size={14} /> Download
+          </a>
+        </div>
+        <iframe
+          src={`https://docs.google.com/viewer?url=${encodeURIComponent(lesson.documentUrl)}&embedded=true`}
+          title={lesson.title}
+          className="h-[70vh] w-full rounded-lg bg-white"
+        />
+      </div>
+    );
+  }
+  return null;
+};
+
+const Resources = ({ files }) => (
+  <div className="rounded-2xl border border-white/[0.07] bg-white/[0.02] p-5">
+    <h2 className="mb-4 flex items-center gap-2 text-base font-semibold text-white"><Download size={18} className="text-orange-400" /> Course materials</h2>
+    {files.length === 0 ? (
+      <p className="text-sm text-gray-400">Your instructor hasn't uploaded any materials for this course yet.</p>
+    ) : (
+      <ul className="space-y-2">
+        {files.map(file => (
+          <li key={file.id} className="flex items-center gap-3 rounded-xl border border-white/[0.07] bg-white/[0.02] px-4 py-3">
+            <FileText size={18} className="shrink-0 text-orange-400" />
+            <span className="flex-1 truncate text-sm text-white">{file.name}</span>
+            <a
+              href={`data:${file.fileType};base64,${file.data}`}
+              download={file.name}
+              className="flex shrink-0 items-center gap-1.5 rounded-lg bg-orange-500/15 px-3 py-1.5 text-xs font-medium text-orange-200 hover:bg-orange-500/25"
+            >
+              <Download size={14} /> Download
+            </a>
+          </li>
+        ))}
+      </ul>
+    )}
+  </div>
+);
+
+const Milestone = ({ milestone, chapter, courseTitle, hasExam, certified, quizLoading, onQuiz, onSkip, onExam, onReview }) => {
+  if (milestone.type === 'course') {
+    return (
+      <div className="animate-fade-in rounded-3xl border border-violet-500/25 bg-gradient-to-br from-violet-600/15 via-blue-600/10 to-transparent p-8 sm:p-12 text-center">
+        <div className="mx-auto mb-5 flex h-16 w-16 items-center justify-center rounded-2xl bg-gradient-to-br from-amber-400 to-orange-500 shadow-lg shadow-orange-900/40">
+          <Trophy size={30} className="text-white" />
+        </div>
+        <h2 className="text-2xl sm:text-3xl font-bold text-white">You finished every lesson!</h2>
+        <p className="mx-auto mt-3 max-w-md text-gray-300">
+          That's the whole of <span className="font-medium text-white">{courseTitle}</span>.{' '}
+          {certified ? 'Your certificate is ready.' : hasExam ? 'One step left: pass the final exam (70%) to earn your certificate.' : ''}
+        </p>
+        <div className="mt-8 flex flex-col-reverse justify-center gap-3 sm:flex-row">
+          <button onClick={onReview} className="rounded-xl bg-white/[0.08] px-5 py-3 text-sm font-medium text-white hover:bg-white/[0.12]">Review lessons</button>
+          {(hasExam || certified) && (
+            <button onClick={onExam} className="flex items-center justify-center gap-2 rounded-xl bg-gradient-to-r from-blue-600 to-violet-600 px-6 py-3 text-sm font-semibold text-white shadow-lg shadow-blue-900/30 hover:opacity-90">
+              {certified ? <><Award size={16} /> View certificate</> : <><GraduationCap size={16} /> Take the final exam</>}
+            </button>
           )}
         </div>
-      ))}
+      </div>
+    );
+  }
+
+  return (
+    <div className="animate-fade-in rounded-3xl border border-emerald-500/20 bg-gradient-to-br from-emerald-500/10 to-transparent p-8 sm:p-12 text-center">
+      <div className="mx-auto mb-5 flex h-14 w-14 items-center justify-center rounded-2xl bg-emerald-500/15 text-emerald-300">
+        <PartyPopper size={26} />
+      </div>
+      <p className="text-xs font-semibold uppercase tracking-wider text-emerald-300">Chapter complete</p>
+      <h2 className="mt-2 text-2xl font-bold text-white">{chapter.title}</h2>
+      <p className="mx-auto mt-3 max-w-md text-gray-300">
+        Lock it in with a quick quiz — retrieval practice is the single best way to remember what you just learned.
+      </p>
+      <div className="mt-8 flex flex-col-reverse justify-center gap-3 sm:flex-row">
+        <button onClick={onSkip} className="rounded-xl bg-white/[0.08] px-5 py-3 text-sm font-medium text-white hover:bg-white/[0.12]">Skip for now</button>
+        <button onClick={onQuiz} disabled={quizLoading} className="flex items-center justify-center gap-2 rounded-xl bg-gradient-to-r from-amber-500 to-orange-500 px-6 py-3 text-sm font-semibold text-white shadow-lg shadow-orange-900/30 hover:opacity-90 disabled:opacity-60">
+          <Brain size={16} /> {quizLoading ? 'Preparing quiz…' : 'Take the chapter quiz'}
+        </button>
+      </div>
     </div>
+  );
+};
+
+const EmptyState = ({ icon: Icon, title, body, action }) => (
+  <div className="mx-auto max-w-md px-6 py-24 text-center">
+    <Icon size={40} className="mx-auto mb-4 text-gray-500" />
+    <h2 className="text-lg font-semibold text-white">{title}</h2>
+    <p className="mt-2 text-sm text-gray-400">{body}</p>
+    {action && <div className="mt-6">{action}</div>}
+  </div>
+);
+
+// Courses without structured chapters show the AI-personalised study plan
+const CurriculumPlan = ({ course, curriculum, onAskBuddy }) => (
+  <div className="mx-auto max-w-3xl px-4 py-8 sm:px-8">
+    <Link to="/student/dashboard" className="mb-6 inline-flex items-center gap-1.5 text-sm text-gray-400 hover:text-white">
+      <ArrowLeft size={15} /> Dashboard
+    </Link>
+    <p className="text-xs font-semibold uppercase tracking-wider text-violet-300">Your personalised plan</p>
+    <h1 className="mt-2 text-3xl font-bold text-white">{course.title}</h1>
+    {course.description && <p className="mt-3 text-gray-300">{course.description}</p>}
+
+    {curriculum?.modules?.length ? (
+      <ol className="mt-8 space-y-3">
+        {curriculum.modules.map((m, i) => (
+          <li key={i} className="rounded-2xl border border-white/[0.07] bg-white/[0.02] p-5">
+            <div className="flex items-start gap-4">
+              <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-violet-500/15 text-sm font-bold text-violet-200">W{m.week || i + 1}</span>
+              <div className="min-w-0">
+                <h3 className="font-semibold text-white">{m.title}</h3>
+                {m.description && <p className="mt-1 text-sm text-gray-400">{m.description}</p>}
+                {m.objectives?.length > 0 && (
+                  <ul className="mt-3 list-disc space-y-1 pl-5 text-sm text-gray-300 marker:text-violet-400">
+                    {m.objectives.map((o, j) => <li key={j}>{o}</li>)}
+                  </ul>
+                )}
+                {m.estimatedHours && <p className="mt-3 text-xs text-gray-500">≈ {m.estimatedHours} hours · {m.difficulty}</p>}
+              </div>
+            </div>
+          </li>
+        ))}
+      </ol>
+    ) : (
+      <div className="mt-8 rounded-2xl border border-white/[0.07] bg-white/[0.02] p-6 text-sm text-gray-400">
+        Lessons for this course are still being prepared. In the meantime, Buddy can walk you through any of its topics.
+      </div>
+    )}
+
+    <button onClick={onAskBuddy} className="mt-8 flex items-center gap-2 rounded-xl bg-violet-500/15 px-5 py-3 text-sm font-medium text-violet-200 hover:bg-violet-500/25">
+      <MessageCircle size={16} /> Study with Buddy
+    </button>
   </div>
 );
 

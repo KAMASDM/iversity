@@ -23,7 +23,19 @@ export default defineConfig([
       },
     },
     rules: {
-      'no-unused-vars': ['error', { varsIgnorePattern: '^[A-Z_]' }],
+      'no-unused-vars': ['error', { varsIgnorePattern: '^[A-Z_]', argsIgnorePattern: '^[A-Z_]' }],
     },
+  },
+  {
+    // Netlify Functions (CommonJS) and seed scripts run in Node
+    files: ['netlify/**/*.js', 'src/seedData/**/*.js'],
+    languageOptions: {
+      globals: { ...globals.node },
+      sourceType: 'commonjs',
+    },
+  },
+  {
+    files: ['src/seedData/**/*.js'],
+    languageOptions: { sourceType: 'module' },
   },
 ])

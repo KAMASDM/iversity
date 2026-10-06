@@ -8,7 +8,6 @@ const StudentNotes = ({ courseId, chapterId, lessonId }) => {
   const { user } = useAuthStore();
   const [notes, setNotes] = useState([]);
   const [newNote, setNewNote] = useState('');
-  const [editingId, setEditingId] = useState(null);
   const [loading, setLoading] = useState(false);
   const [showForm, setShowForm] = useState(false);
 
@@ -46,7 +45,7 @@ const StudentNotes = ({ courseId, chapterId, lessonId }) => {
       setShowForm(false);
       await loadNotes();
       toast.success('Note saved!');
-    } catch (error) {
+    } catch {
       toast.error('Failed to save note');
     } finally {
       setLoading(false);
@@ -60,7 +59,7 @@ const StudentNotes = ({ courseId, chapterId, lessonId }) => {
       await deleteNote(noteId);
       await loadNotes();
       toast.success('Note deleted');
-    } catch (error) {
+    } catch {
       toast.error('Failed to delete note');
     }
   };
