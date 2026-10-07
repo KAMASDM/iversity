@@ -18,6 +18,12 @@ import { aiForLegalCourse } from '../../seedData/aiForLegalCourse';
 import { aiForBusinessLeadersCourse } from '../../seedData/aiForBusinessLeadersCourse';
 import { genAIForContentCreatorsCourse } from '../../seedData/genAIForContentCreatorsCourse';
 import { aiForHRCourse } from '../../seedData/aiForHRCourse';
+import { mcpAgentsCourse } from '../../seedData/mcpAgentsCourse';
+import { agenticCodingCourse } from '../../seedData/agenticCodingCourse';
+import { llmEvalsCourse } from '../../seedData/llmEvalsCourse';
+import { aiSecurityCourse } from '../../seedData/aiSecurityCourse';
+import { aiGovernanceCourse } from '../../seedData/aiGovernanceCourse';
+import { aiAutomationCourse } from '../../seedData/aiAutomationCourse';
 
 const allCourses = [
   aiFoundationCourse,
@@ -33,6 +39,12 @@ const allCourses = [
   aiForBusinessLeadersCourse,
   genAIForContentCreatorsCourse,
   aiForHRCourse,
+  mcpAgentsCourse,
+  agenticCodingCourse,
+  llmEvalsCourse,
+  aiSecurityCourse,
+  aiGovernanceCourse,
+  aiAutomationCourse,
 ];
 
 const AddAllCourses = () => {
@@ -70,7 +82,22 @@ const AddAllCourses = () => {
     setResults([]);
     const newResults = [];
 
+    // Skip titles that already exist so "Add" never creates duplicates
+    let existingTitles;
+    try {
+      existingTitles = new Set((await getAllCourses()).map(c => c.title));
+    } catch {
+      toast.error('Failed to fetch existing courses from Firestore.');
+      setLoading(false);
+      return;
+    }
+
     for (const course of selectedCourses) {
+      if (existingTitles.has(course.title)) {
+        newResults.push({ title: course.title, status: 'success', note: 'Already exists — skipped' });
+        setResults([...newResults]);
+        continue;
+      }
       try {
         const courseId = await createCourse(course, user.uid);
         newResults.push({ title: course.title, status: 'success', id: courseId });

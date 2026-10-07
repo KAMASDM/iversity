@@ -69,7 +69,7 @@ const SITE_KNOWLEDGE = [
     id: 'faq-courses-available',
     type: 'faq',
     source: 'Available Courses',
-    text: `iVersity currently offers 13 courses across AI, Machine Learning, and Professional AI Applications:
+    text: `iVersity currently offers 19 courses across AI, Machine Learning, and Professional AI Applications:
 (1) "AI & LLMs: A Beginner's Foundation" — beginner, covers what AI is, how LLMs work, tokens, embeddings, and practical applications.
 (2) "Mastering Prompt Engineering" — intermediate, covers zero-shot, few-shot, chain-of-thought prompting, and advanced techniques.
 (3) "Building AI-Powered Applications with APIs" — intermediate, covers OpenAI API, function calling, streaming, prompt pipelines, and deploying AI apps.
@@ -82,7 +82,13 @@ const SITE_KNOWLEDGE = [
 (10) "AI for Human Resources & Talent Management" — covers AI recruiting, employee analytics, performance management, and HR chatbots.
 (11) "AI for Legal Professionals: From Research to Practice" — covers AI legal research, contract analysis, compliance, and document automation.
 (12) "AI for Fashion Designers: From Concept to Collection" — covers generative design, trend forecasting, customer personalization, and supply chain AI.
-(13) "Generative AI for Marketing & Content Creation" — covers image generation, copywriting, video scripts, and brand voice with AI.`,
+(13) "Generative AI for Marketing & Content Creation" — covers image generation, copywriting, video scripts, and brand voice with AI.
+(14) "Building AI Agents with MCP & Agent Skills" — intermediate, covers the agent loop, Model Context Protocol servers, Agent Skills, context engineering and production agents.
+(15) "Agentic Coding: Shipping Software with AI Coding Agents" — intermediate, covers coding agents, context files, plan-test-review workflows, security and team rollout.
+(16) "LLM Evaluation & Observability: Measuring What Matters" — intermediate, covers error analysis, eval datasets, LLM-as-judge, RAG and agent evaluation, and production monitoring.
+(17) "AI Security: Prompt Injection, Red Teaming & Guardrails" — intermediate, covers the OWASP Top 10 for LLMs, prompt injection, agent risks, red teaming and defense in depth.
+(18) "AI Governance & Compliance: EU AI Act, NIST & ISO 42001" — beginner, covers AI regulation, risk classification, governance frameworks, AI inventories and AI literacy.
+(19) "AI Automation for Business: No-Code Workflows & Agents" — beginner, covers no-code AI workflows, structured outputs, agents, approvals and automation ROI.`,
   },
 ];
 
