@@ -10,6 +10,7 @@ import { llmEvalsCourse } from './llmEvalsCourse.js';
 import { aiSecurityCourse } from './aiSecurityCourse.js';
 import { aiGovernanceCourse } from './aiGovernanceCourse.js';
 import { aiAutomationCourse } from './aiAutomationCourse.js';
+import { aiEthicsCourse } from './aiEthicsCourse.js';
 
 const courses = [
   mcpAgentsCourse,
@@ -18,6 +19,7 @@ const courses = [
   aiSecurityCourse,
   aiGovernanceCourse,
   aiAutomationCourse,
+  aiEthicsCourse,
 ];
 
 const app = initializeApp({

@@ -69,7 +69,7 @@ const SITE_KNOWLEDGE = [
     id: 'faq-courses-available',
     type: 'faq',
     source: 'Available Courses',
-    text: `iVersity currently offers 19 courses across AI, Machine Learning, and Professional AI Applications:
+    text: `iVersity currently offers 20 courses across AI, Machine Learning, and Professional AI Applications:
 (1) "AI & LLMs: A Beginner's Foundation" — beginner, covers what AI is, how LLMs work, tokens, embeddings, and practical applications.
 (2) "Mastering Prompt Engineering" — intermediate, covers zero-shot, few-shot, chain-of-thought prompting, and advanced techniques.
 (3) "Building AI-Powered Applications with APIs" — intermediate, covers OpenAI API, function calling, streaming, prompt pipelines, and deploying AI apps.
@@ -88,7 +88,8 @@ const SITE_KNOWLEDGE = [
 (16) "LLM Evaluation & Observability: Measuring What Matters" — intermediate, covers error analysis, eval datasets, LLM-as-judge, RAG and agent evaluation, and production monitoring.
 (17) "AI Security: Prompt Injection, Red Teaming & Guardrails" — intermediate, covers the OWASP Top 10 for LLMs, prompt injection, agent risks, red teaming and defense in depth.
 (18) "AI Governance & Compliance: EU AI Act, NIST & ISO 42001" — beginner, covers AI regulation, risk classification, governance frameworks, AI inventories and AI literacy.
-(19) "AI Automation for Business: No-Code Workflows & Agents" — beginner, covers no-code AI workflows, structured outputs, agents, approvals and automation ROI.`,
+(19) "AI Automation for Business: No-Code Workflows & Agents" — beginner, covers no-code AI workflows, structured outputs, agents, approvals and automation ROI.
+(20) "AI Ethics: Building and Using AI Responsibly" — beginner, covers ethical principles and trade-offs, bias and fairness, transparency, accountability, human oversight, privacy, deepfakes and running ethical reviews.`,
   },
 ];
 

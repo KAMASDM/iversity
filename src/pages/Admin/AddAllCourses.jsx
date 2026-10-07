@@ -24,6 +24,7 @@ import { llmEvalsCourse } from '../../seedData/llmEvalsCourse';
 import { aiSecurityCourse } from '../../seedData/aiSecurityCourse';
 import { aiGovernanceCourse } from '../../seedData/aiGovernanceCourse';
 import { aiAutomationCourse } from '../../seedData/aiAutomationCourse';
+import { aiEthicsCourse } from '../../seedData/aiEthicsCourse';
 
 const allCourses = [
   aiFoundationCourse,
@@ -45,6 +46,7 @@ const allCourses = [
   aiSecurityCourse,
   aiGovernanceCourse,
   aiAutomationCourse,
+  aiEthicsCourse,
 ];
 
 const AddAllCourses = () => {
